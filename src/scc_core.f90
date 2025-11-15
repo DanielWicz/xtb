@@ -38,6 +38,10 @@ module xtb_scc_core
    public :: iniqshell, setzshell
    public :: shellPoly, h0scal
 
+   !> Workspace reused by dmat to avoid repeated allocation each SCC step
+   real(wp), allocatable, save :: Ptmp_workspace(:,:)
+!$omp threadprivate(Ptmp_workspace)
+
 
    integer, private, parameter :: mmm(20)=(/1,2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4/)
 
@@ -1180,27 +1184,27 @@ subroutine dmat(ndim,focc,C,P)
    real(wp),intent(in)  :: C(:,:)
    real(wp),intent(out) :: P(:,:)
    integer :: i,m
-   real(wp),allocatable :: Ptmp(:,:)
 
-   allocate(Ptmp(ndim,ndim))
-   ! acc enter data create(Ptmp(:,:)) copyin(C(:, :), focc(:), P(:, :))
+   if (.not.allocated(Ptmp_workspace)) then
+      allocate(Ptmp_workspace(ndim,ndim))
+   else if (size(Ptmp_workspace,1) < ndim .or. size(Ptmp_workspace,2) < ndim) then
+      deallocate(Ptmp_workspace)
+      allocate(Ptmp_workspace(ndim,ndim))
+   end if
+   ! acc enter data create(Ptmp_workspace(:,:)) copyin(C(:, :), focc(:), P(:, :))
    ! acc kernels default(present)
-   Ptmp = 0.0_wp
+   Ptmp_workspace = 0.0_wp
    ! acc end kernels
 
    ! acc parallel
    ! acc loop gang collapse(2)
-   do m=1,ndim
-      do i=1,ndim
-         Ptmp(i,m)=C(i,m)*focc(m)
-      enddo
+   do concurrent (m=1:ndim, i=1:ndim)
+      Ptmp_workspace(i,m)=C(i,m)*focc(m)
    enddo
    ! acc end parallel
-   ! acc update host(Ptmp)
-   call mctc_gemm(C, Ptmp, P, transb='t')
-   ! acc exit data copyout(P(:,:)) delete(C(:,:), focc(:), Ptmp(:, :))
-
-   deallocate(Ptmp)
+   ! acc update host(Ptmp_workspace)
+   call mctc_gemm(C, Ptmp_workspace, P, transb='t')
+   ! acc exit data copyout(P(:,:)) delete(C(:,:), focc(:), Ptmp_workspace(:, :))
 
 end subroutine dmat
 
