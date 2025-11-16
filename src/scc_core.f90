@@ -180,7 +180,7 @@ subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mql
    integer, intent(in)  :: ao2sh(ndim)
    real(wp),intent(inout) :: H(ndim,ndim)
 
-   integer, external :: lin
+   real(wp), parameter :: half_autoev = 0.5_wp*autoev
    integer  :: m,i,j,k,l
    integer  :: ii,jj,kk
    integer  :: ishell,jshell
@@ -197,7 +197,7 @@ subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mql
       i=matlist(1,m)
       j=matlist(2,m)
       k=j+i*(i-1)/2
-      dum = S(j,i)*autoev*0.5_wp
+      dum = S(j,i)*half_autoev
 
       ii = ao2sh(i)
       jj = ao2sh(j)
@@ -219,14 +219,13 @@ subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mql
    do m=1,ndp
       i=mdlst(1,m)
       j=mdlst(2,m)
-      k=lin(j,i)
       ii=aoat2(i)
       jj=aoat2(j)
       eh1=0.0_wp
       do l=1,3
          eh1=eh1+dpint(l,i,j)*(vd(l,ii)+vd(l,jj))
       enddo
-      eh1=0.50_wp*eh1*autoev
+      eh1=eh1*half_autoev
       H(i,j)=H(i,j)+eh1
       H(j,i)=H(i,j)
    enddo
@@ -238,14 +237,13 @@ subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mql
       j=mqlst(2,m)
       ii=aoat2(i)
       jj=aoat2(j)
-      k=lin(j,i)
       eh1=0.0_wp
       ! note: these come in the following order
       ! xx, yy, zz, xy, xz, yz
       do l=1,6
          eh1=eh1+qpint(l,i,j)*(vq(l,ii)+vq(l,jj))
       enddo
-      eh1=0.50_wp*eh1*autoev
+      eh1=eh1*half_autoev
       H(i,j)=H(i,j)+eh1
       H(j,i)=H(i,j)
    enddo
