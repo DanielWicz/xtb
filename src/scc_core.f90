@@ -1303,25 +1303,16 @@ subroutine mpopall(n,nao,aoat,S,P,qao,q)
    integer nao,n,aoat(nao)
    real(wp)  S (nao,nao)
    real(wp)  P (nao,nao)
-   real(wp)  qao(nao),q(n),ps
+   real(wp)  qao(nao),q(n)
 
-   integer i,j,ii,jj,ij,is,js
+   integer i,ii
 
-   q  = 0
-   qao= 0
+   q   = 0.0_wp
+   qao = 0.0_wp
    do i=1,nao
-      ii=aoat(i)
-      do j=1,i-1
-         jj=aoat(j)
-         ps=p(j,i)*s(j,i)
-         q(ii)=q(ii)+ps
-         q(jj)=q(jj)+ps
-         qao(i)=qao(i)+ps
-         qao(j)=qao(j)+ps
-      enddo
-      ps=p(i,i)*s(i,i)
-      q(ii)=q(ii)+ps
-      qao(i)=qao(i)+ps
+      qao(i) = dot_product(P(:,i), S(:,i))
+      ii = aoat(i)
+      q(ii) = q(ii) + qao(i)
    enddo
 
 end subroutine mpopall
@@ -1332,21 +1323,14 @@ subroutine mpop0(n,nao,aoat,S,P,q)
    integer nao,n,aoat(nao)
    real(wp)  S (nao,nao)
    real(wp)  P (nao,nao)
-   real(wp)  q(n),ps
+   real(wp)  q(n)
 
-   integer i,j,ii,jj,ij,is,js
+   integer i,ii
 
-   q = 0
+   q = 0.0_wp
    do i=1,nao
-      ii=aoat(i)
-      do j=1,i-1
-         jj=aoat(j)
-         ps=p(j,i)*s(j,i)
-         q(ii)=q(ii)+ps
-         q(jj)=q(jj)+ps
-      enddo
-      ps=p(i,i)*s(i,i)
-      q(ii)=q(ii)+ps
+      ii = aoat(i)
+      q(ii) = q(ii) + dot_product(P(:,i), S(:,i))
    enddo
 
 end subroutine mpop0
@@ -1357,19 +1341,13 @@ subroutine mpopao(n,nao,S,P,qao)
    integer nao,n
    real(wp)  S (nao,nao)
    real(wp)  P (nao,nao)
-   real(wp)  qao(nao),ps
+   real(wp)  qao(nao)
 
-   integer i,j
+   integer i
 
-   qao = 0
+   qao = 0.0_wp
    do i=1,nao
-      do j=1,i-1
-         ps=p(j,i)*s(j,i)
-         qao(i)=qao(i)+ps
-         qao(j)=qao(j)+ps
-      enddo
-      ps=p(i,i)*s(i,i)
-      qao(i)=qao(i)+ps
+      qao(i) = dot_product(P(:,i), S(:,i))
    enddo
 
 end subroutine mpopao
@@ -1386,8 +1364,8 @@ subroutine mpop(n,nao,aoat,lao,S,P,q,ql)
    integer i,j,ii,jj,ij,is,js,mmm(20)
    data    mmm/1,2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4/
 
-   ql= 0
-   q = 0
+   ql = 0.0_wp
+   q  = 0.0_wp
    do i=1,nao
       ii=aoat(i)
       is=mmm(lao(i))
@@ -1395,14 +1373,16 @@ subroutine mpop(n,nao,aoat,lao,S,P,q,ql)
          jj=aoat(j)
          js=mmm(lao(j))
          ps=p(j,i)*s(j,i)
-         q(ii)=q(ii)+ps
-         q(jj)=q(jj)+ps
          ql(is,ii)=ql(is,ii)+ps
          ql(js,jj)=ql(js,jj)+ps
       enddo
       ps=p(i,i)*s(i,i)
-      q(ii)=q(ii)+ps
       ql(is,ii)=ql(is,ii)+ps
+   enddo
+
+   do i=1,nao
+      ii = aoat(i)
+      q(ii) = q(ii) + dot_product(P(:,i), S(:,i))
    enddo
 
 end subroutine mpop
@@ -1413,21 +1393,14 @@ subroutine mpopsh(n,nao,nshell,ao2sh,S,P,qsh)
    integer nao,n,nshell,ao2sh(nao)
    real(wp)  S (nao,nao)
    real(wp)  P (nao,nao)
-   real(wp)  qsh(nshell),ps
+   real(wp)  qsh(nshell)
 
-   integer i,j,ii,jj,ij
+   integer i,ii
 
-   qsh=0
+   qsh = 0.0_wp
    do i=1,nao
-      ii =ao2sh(i)
-      do j=1,i-1
-         jj =ao2sh(j)
-         ps=p(j,i)*s(j,i)
-         qsh(ii)=qsh(ii)+ps
-         qsh(jj)=qsh(jj)+ps
-      enddo
-      ps=p(i,i)*s(i,i)
-      qsh(ii)=qsh(ii)+ps
+      ii = ao2sh(i)
+      qsh(ii) = qsh(ii) + dot_product(P(:,i), S(:,i))
    enddo
 
 end subroutine mpopsh
