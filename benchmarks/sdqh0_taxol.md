@@ -13,6 +13,7 @@
 | --- | --- | --- | --- | --- |
 | Baseline (pre-change) | 0.029564 | 0.003730 | 0.000384 | 0.001667 |
 | After skip+rowstart optimizations | 0.025725 | 0.003465 | 0.000403 | 0.001383 |
+| After gradient packed-row update | 0.029517 | 0.003737 | 0.000405 | 0.001526 |
 - **Notes**: run produces standard scratch files in the build directory. Delete or re-use them before rerunning to avoid accidental file churn.
 
 This measurement is the performance reference for the upcoming optimizations in `src/xtb/hamiltonian.F90`.

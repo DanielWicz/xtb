@@ -706,8 +706,8 @@ subroutine build_dSDQH0_noreset(nShell, hData, selfEnergy, dSEdcn, intcut, &
    integer, intent(in)    :: primcount(:)
    real(wp),intent(in)    :: alp(:)
    real(wp),intent(in)    :: cont(:)
-   !> Molecular Hamiltonian
-   real(wp),intent(in) :: H0(:, :)
+   !> Molecular Hamiltonian (packed lower-triangular storage, in eV)
+   real(wp),intent(in) :: H0(:)
    !> Molecular Overlap
    real(wp),intent(in) :: S(:, :)
    !> Density matrix
@@ -734,17 +734,23 @@ subroutine build_dSDQH0_noreset(nShell, hData, selfEnergy, dSEdcn, intcut, &
    real(wp) :: zi, zj, zetaij, km, hii, hjj, hav, shpoly, dshpoly(3), dCN
    real(wp) :: Pij, Hij, HPij, g_xyz(3)
    real(wp), parameter :: rthr = 1600.0_wp
+   integer, allocatable :: rowStart(:)
 
    ! local OpenMP variables
 !$ real(wp), allocatable :: g_omp(:, :), sigma_omp(:, :), dhdcn_omp(:)
 
    thr2 = intcut
    point = 0.0_wp
+   allocate(rowStart(nao))
+   rowStart(1) = 0
+   do i = 2, nao
+      rowStart(i) = rowStart(i-1) + (i-1)
+   end do
    ! call timing(t1,t3)
    !$omp parallel default(none) &
    !$omp shared(nat, at, xyz, nShell, hData, selfEnergy, dSEdcn, P, Pew, &
    !$omp& H0, S, ves, vs, vd, vq, intcut, nprim, primcount, caoshell, saoshell, &
-   !$omp& alp, cont, g, sigma, dhdcn) &
+   !$omp& alp, cont, g, sigma, dhdcn, rowStart) &
    !$omp private(iat,jat,ixyz,izp,ci,rij2,jzp,ish,ishtyp,ij,i, &
    !$omp& icao,naoi,iptyp,jsh,jshmax,jshtyp,jcao,naoj,jptyp,dCN, &
    !$omp& sdq,sdqg,est,alpi,alpj,ab,iprim,jprim,ip,jp,ri,rj,rij,km,shpoly,dshpoly, &
@@ -820,7 +826,12 @@ subroutine build_dSDQH0_noreset(nShell, hData, selfEnergy, dSEdcn, intcut, &
                      Pij = p(jao,iao)
 
                      ! Hamiltonian element without overlap
-                     Hij  = H0(jao, iao)
+                     if (jao >= iao) then
+                        ij = rowStart(jao) + iao
+                     else
+                        ij = rowStart(iao) + jao
+                     end if
+                     Hij  = H0(ij) * evtoau
                      HPij = Hij * Pij
 
                      g_xyz(:) = g_xyz + 2*HPij*S(jao,iao)*dshpoly/shpoly &
@@ -888,6 +899,8 @@ subroutine build_dSDQH0_noreset(nShell, hData, selfEnergy, dSEdcn, intcut, &
    !$omp end critical (dhdcn_crt)
 
    !$omp end parallel
+
+   deallocate(rowStart)
 
 end subroutine build_dSDQH0_noreset
 

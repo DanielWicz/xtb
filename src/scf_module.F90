@@ -146,7 +146,6 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    real(wp),allocatable :: Pa(:, :)
    real(wp),allocatable :: Pb(:, :)
    real(wp),allocatable :: Pew(:, :)
-   real(wp),allocatable :: H(:, :)
    integer :: nid
    integer, allocatable :: idnum(:)
    type(TxTBCoulomb) :: ies
@@ -697,19 +696,10 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       & dhdcn, gradient, sigma)
 #else
    if (mol%npbc == 0) then
-      allocate(H(basis%nao, basis%nao))
-      H(:, :) = 0.0_wp
-      do i = 1, basis%nao
-         do j = 1, i-1
-            k = j+i*(i-1)/2
-            H(j,i) = H0_noovlp(k)*evtoau
-            H(i,j) = H(j,i)
-         end do
-      enddo
       call build_dSDQH0_noreset(xtbData%nShell, xtbData%hamiltonian, selfEnergy, &
          & dSEdcn, intcut, mol%n, basis%nao, basis%nbf, mol%at, mol%xyz, &
          & basis%caoshell, basis%saoshell, basis%nprim, basis%primcount, &
-         & basis%alp, basis%cont, H, S, wfn%p, Pew, shellShift, vs, vd, vq, &
+         & basis%alp, basis%cont, H0_noovlp, S, wfn%p, Pew, shellShift, vs, vd, vq, &
          & dhdcn, gradient, sigma)
    else
       call build_dSDQH0(xtbData%nShell, xtbData%hamiltonian, selfEnergy, dSEdcn, &
