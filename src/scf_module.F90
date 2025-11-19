@@ -874,6 +874,11 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    endif
    call calc_dipole(mol%n,mol%at,mol%xyz,mol%z,basis%nao,wfn%P,dpint,dip,dipol)
 
+   ! release the largest integral tensors before exiting to avoid long-lived
+   ! allocations during repeated SCF calls
+   if (allocated(dpint)) deallocate(dpint)
+   if (allocated(qpint)) deallocate(qpint)
+
    if (profile) call timer%measure(7)
 
 
