@@ -812,12 +812,14 @@ subroutine count_dpint(ndp, dpint, thr)
    ndp = 0
    thr2 = (thr*1.0e-2_wp)-thr*1.0e-12_wp
 
+!$omp parallel do default(shared) private(j,tmp1) reduction(+:ndp) schedule(static)
    do i = 1, size(dpint, dim=3)
       do j = 1, i
-         tmp1 = sum(dpint(1:3, j, i)**2)
+         tmp1 = dot_product(dpint(1:3, j, i), dpint(1:3, j, i))
          if (tmp1 > thr2) ndp = ndp + 1
       enddo
    enddo
+!$omp end parallel do
 
 end subroutine count_dpint
 
@@ -840,12 +842,15 @@ subroutine count_qpint(nqp, qpint, thr)
    nqp = 0
    thr2 = (thr*1.0e-2_wp)-thr*1.0e-12_wp
 
+!$omp parallel do default(shared) private(j,tmp2) reduction(+:nqp) schedule(static)
    do i = 1, size(qpint, dim=3)
       do j = 1, i
-         tmp2 = sum(qpint(1:3, j, i)**2) + 2*sum(qpint(4:6, j, i)**2)
+         tmp2 = dot_product(qpint(1:3, j, i), qpint(1:3, j, i)) &
+            & + 2.0_wp*dot_product(qpint(4:6, j, i), qpint(4:6, j, i))
          if (tmp2 > thr2) nqp = nqp + 1
       enddo
    enddo
+!$omp end parallel do
 
 end subroutine count_qpint
 
