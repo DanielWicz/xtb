@@ -325,7 +325,7 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    !$omp shared(nat, xyz, at, nShell, hData, saoshell, selfEnergy, caoshell, &
    !$omp& point, intcut, nprim, primcount, alp, cont) &
    !$omp private(iat, ra, izp, ish, ishtyp, iao, i, ii, icao, naoi, iptyp, &
-   !$omp& jsh, jshtyp, jcao, ss, dd, qq, k, tmp, jao, jj, naoj, jptyp)
+   !$omp& jsh, jshtyp, jcao, ss, dd, qq, jao, jj, naoj, jptyp, mli, mlj, dblk, qblk, tmp)
    do iat = 1, nat
       ra = xyz(:, iat)
       izp = at(iat)
@@ -352,8 +352,6 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
             qq = 0.0_wp
             call get_multiints(icao,jcao,naoi,naoj,ishtyp,jshtyp,ra,ra,point, &
                &               intcut,nprim,primcount,alp,cont,ss,dd,qq)
-            !transform from CAO to SAO
-            !call dtrf2(ss,ishtyp,jshtyp)
             do k = 1,3
                tmp(1:6, 1:6) = dd(k,1:6, 1:6)
                call dtrf2(tmp, ishtyp, jshtyp)
@@ -364,18 +362,22 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
                call dtrf2(tmp, ishtyp, jshtyp)
                qq(k, 1:6, 1:6) = tmp(1:6, 1:6)
             enddo
-            do ii = 1, llao2(ishtyp)
+            mli = llao2(ishtyp)
+            mlj = llao2(jshtyp)
+            dblk(:,1:mlj,1:mli) = dd(:,1:mlj,1:mli)
+            qblk(:,1:mlj,1:mli) = qq(:,1:mlj,1:mli)
+            do ii = 1, mli
                iao = ii + saoshell(ish,iat)
-               do jj = 1, llao2(jshtyp)
+               do jj = 1, mlj
                   jao = jj + saoshell(jsh,iat)
                   if (jao > iao .and. ish ==  jsh) cycle
-                  dpint(1:3, iao, jao) = dpint(1:3, iao, jao) + dd(1:3, jj, ii)
+                  dpint(1:3, iao, jao) = dpint(1:3, iao, jao) + dblk(1:3, jj, ii)
                   if (iao /= jao) then
-                     dpint(1:3, jao, iao) = dpint(1:3, jao, iao) + dd(1:3, jj, ii)
+                     dpint(1:3, jao, iao) = dpint(1:3, jao, iao) + dblk(1:3, jj, ii)
                   end if
-                  qpint(1:6, iao, jao) = qpint(1:6, iao, jao) + qq(1:6, jj, ii)
+                  qpint(1:6, iao, jao) = qpint(1:6, iao, jao) + qblk(1:6, jj, ii)
                   if (jao /= iao) then
-                     qpint(1:6, jao, iao) = qpint(1:6, jao, iao) + qq(1:6, jj, ii)
+                     qpint(1:6, jao, iao) = qpint(1:6, jao, iao) + qblk(1:6, jj, ii)
                   end if
                end do
             end do
