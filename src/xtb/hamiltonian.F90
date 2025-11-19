@@ -194,10 +194,11 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
 
    real(wp)  ra(3),rb(3),f1,f2,point(3)
    real(wp) dtmp(3),qtmp(6),ss(6,6),dd(3,6,6),qq(6,6,6),tmp(6,6)
+   real(wp) :: sblk(7,7), hblk(7,7), dblk(3,7,7), qblk(6,7,7)
    integer ip,jp,iat,jat,izp,jzp,ish,jsh,icao,jcao,iao,jao,jshmax
    integer ishtyp,jshtyp,iptyp,jptyp,naoi,naoj,mli,mlj,iprim,jprim
    integer :: il, jl, itr
-   real(wp) :: zi, zj, zetaij, km, hii, hjj, hav, shpoly
+   real(wp) :: zi, zj, zetaij, km, hii, hjj, hav, shpoly, shpoly_acc, hav_shpoly
    integer itt(0:3)
    parameter(itt  =(/0,1,4,10/))
    real(wp) :: saw(10)
@@ -217,9 +218,9 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    !$omp& nprim, primcount, alp, cont, intcut, trans, point) &
    !$omp private (iat,jat,izp,ci,ra,rb,saw, &
    !$omp& rab2,jzp,ish,ishtyp,icao,naoi,iptyp, &
-   !$omp& jsh,jshmax,jshtyp,jcao,naoj,jptyp,ss,dd,qq,shpoly, &
+   !$omp& jsh,jshmax,jshtyp,jcao,naoj,jptyp,ss,dd,qq,shpoly, shpoly_acc, hav_shpoly,&
    !$omp& est,alpi,alpj,ab,iprim,jprim,ip,jp,il,jl,hii,hjj,km,zi,zj,zetaij,hav, &
-   !$omp& mli,mlj,tmp,tmp1,tmp2,iao,jao,ii,jj,k,ij,itr) &
+   !$omp& mli,mlj,tmp,tmp1,tmp2,iao,jao,ii,jj,k,ij,itr,sblk,hblk,dblk,qblk) &
    !$omp shared(sint,dpint,qpint,H0,H0_noovlp) &
    !$omp collapse(2) schedule(dynamic,32)
    do iat = 1, nat
@@ -238,6 +239,8 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
                jcao = caoshell(jsh,jat)
                naoj = llao(jshtyp)
                jptyp = itt(jshtyp)
+               mli = llao2(ishtyp)
+               mlj = llao2(jshtyp)
 
                il = ishtyp+1
                jl = jshtyp+1
@@ -254,6 +257,11 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
 
                hav = 0.5_wp * km * (hii + hjj) * zetaij
 
+               shpoly_acc = 0.0_wp
+               sblk(1:mlj,1:mli) = 0.0_wp
+               hblk(1:mlj,1:mli) = 0.0_wp
+               dblk(:,1:mlj,1:mli) = 0.0_wp
+               qblk(:,1:mlj,1:mli) = 0.0_wp
                do itr = 1, size(trans, dim=2)
                   rb(1:3) = xyz(1:3,jat) + trans(:, itr)
                   rab2 = sum( (rb-ra)**2 )
@@ -279,20 +287,23 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
                      call dtrf2(tmp,ishtyp,jshtyp)
                      qq(k,1:6,1:6) = tmp(1:6,1:6)
                   enddo
-                  do ii = 1,llao2(ishtyp)
-                     iao = ii+saoshell(ish,iat)
-                     do jj = 1,llao2(jshtyp)
-                        jao = jj+saoshell(jsh,jat)
-                        ij = lin(iao, jao)
-                        H0(ij) = H0(ij) + hav * shpoly * ss(jj, ii)
-                        H0_noovlp(ij) = H0_noovlp(ij) + hav * shpoly
-                        !sint(iao, jao) = sint(iao, jao) + ss(jj, ii)
-                        sint(jao, iao) = sint(jao, iao) + ss(jj, ii)
-                        !dpint(:, iao, jao) = dpint(:, iao, jao) + dd(:, jj, ii)
-                        dpint(:, jao, iao) = dpint(:, jao, iao) + dd(:, jj, ii)
-                        !qpint(:, iao, jao) = qpint(:, iao, jao) + qq(:, jj, ii)
-                        qpint(:, jao, iao) = qpint(:, jao, iao) + qq(:, jj, ii)
-                     enddo
+                  hblk(1:mlj,1:mli) = hblk(1:mlj,1:mli) + shpoly * ss(1:mlj,1:mli)
+                  sblk(1:mlj,1:mli) = sblk(1:mlj,1:mli) + ss(1:mlj,1:mli)
+                  dblk(:,1:mlj,1:mli) = dblk(:,1:mlj,1:mli) + dd(:,1:mlj,1:mli)
+                  qblk(:,1:mlj,1:mli) = qblk(:,1:mlj,1:mli) + qq(:,1:mlj,1:mli)
+                  shpoly_acc = shpoly_acc + shpoly
+               enddo
+               hav_shpoly = hav * shpoly_acc
+               do ii = 1,mli
+                  iao = ii+saoshell(ish,iat)
+                  do jj = 1,mlj
+                     jao = jj+saoshell(jsh,jat)
+                     ij = lin(iao, jao)
+                     H0(ij) = H0(ij) + hav * hblk(jj, ii)
+                     H0_noovlp(ij) = H0_noovlp(ij) + hav_shpoly
+                     sint(jao, iao) = sint(jao, iao) + sblk(jj, ii)
+                     dpint(:, jao, iao) = dpint(:, jao, iao) + dblk(:, jj, ii)
+                     qpint(:, jao, iao) = qpint(:, jao, iao) + qblk(:, jj, ii)
                   enddo
                enddo
             enddo
