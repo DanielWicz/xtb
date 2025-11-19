@@ -54,13 +54,15 @@ subroutine getSelfEnergyFlat(hData, nShell, at, cn, qat, selfEnergy, dSEdcn, dSE
    real(wp), intent(out), optional :: dSEdcn(:)
    real(wp), intent(out), optional :: dSEdq(:)
 
-   integer :: ind, iAt, iZp, iSh
+   integer :: ind, iAt, iZp, iSh, nat
+
+   nat = size(at)
 
    selfEnergy(:) = 0.0_wp
    if (present(dSEdcn)) dSEdcn(:) = 0.0_wp
    if (present(dSEdq)) dSEdq(:) = 0.0_wp
    ind = 0
-   do iAt = 1, size(cn)
+   do iAt = 1, nat
       iZp = at(iAt)
       do iSh = 1, nShell(iZp)
          selfEnergy(ind+iSh) = hData%selfEnergy(iSh, iZp)
@@ -69,7 +71,7 @@ subroutine getSelfEnergyFlat(hData, nShell, at, cn, qat, selfEnergy, dSEdcn, dSE
    end do
    if (present(dSEdcn) .and. present(cn)) then
       ind = 0
-      do iAt = 1, size(cn)
+      do iAt = 1, nat
          iZp = at(iAt)
          do iSh = 1, nShell(iZp)
             selfEnergy(ind+iSh) = selfEnergy(ind+iSh) &
@@ -81,7 +83,7 @@ subroutine getSelfEnergyFlat(hData, nShell, at, cn, qat, selfEnergy, dSEdcn, dSE
    end if
    if (present(dSEdq) .and. present(qat)) then
       ind = 0
-      do iAt = 1, size(cn)
+      do iAt = 1, nat
          iZp = at(iAt)
          do iSh = 1, nShell(iZp)
             selfEnergy(ind+iSh) = selfEnergy(ind+iSh) &
@@ -105,19 +107,21 @@ subroutine getSelfEnergy2D(hData, nShell, at, cn, qat, selfEnergy, dSEdcn, dSEdq
    real(wp), intent(out), optional :: dSEdcn(:, :)
    real(wp), intent(out), optional :: dSEdq(:, :)
 
-   integer :: iAt, iZp, iSh
+   integer :: iAt, iZp, iSh, nat
+
+   nat = size(at)
 
    selfEnergy(:, :) = 0.0_wp
    if (present(dSEdcn)) dSEdcn(:, :) = 0.0_wp
    if (present(dSEdq)) dSEdq(:, :) = 0.0_wp
-   do iAt = 1, size(cn)
+   do iAt = 1, nat
       iZp = at(iAt)
       do iSh = 1, nShell(iZp)
          selfEnergy(iSh, iAt) = hData%selfEnergy(iSh, iZp)
       end do
    end do
    if (present(dSEdcn) .and. present(cn)) then
-      do iAt = 1, size(cn)
+      do iAt = 1, nat
          iZp = at(iAt)
          do iSh = 1, nShell(iZp)
             selfEnergy(iSh, iAt) = selfEnergy(iSh, iAt) &
@@ -127,7 +131,7 @@ subroutine getSelfEnergy2D(hData, nShell, at, cn, qat, selfEnergy, dSEdcn, dSEdq
       end do
    end if
    if (present(dSEdq) .and. present(qat)) then
-      do iAt = 1, size(cn)
+      do iAt = 1, nat
          iZp = at(iAt)
          do iSh = 1, nShell(iZp)
             selfEnergy(iSh, iAt) = selfEnergy(iSh, iAt) &
