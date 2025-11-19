@@ -25,6 +25,7 @@ module xtb_xtb_hamiltonian
    use xtb_lin
    use xtb_scc_core, only : shellPoly, h0scal
    use xtb_grad_core, only : dshellPoly
+   use omp_lib, only : omp_get_wtime
    implicit none
    private
 
@@ -40,8 +41,19 @@ module xtb_xtb_hamiltonian
 
    integer,private, parameter :: llao (0:3) = (/ 1, 3, 6,10/)
    integer,private, parameter :: llao2(0:3) = (/ 1, 3, 5, 7/)
+   logical, private, save :: timing_init = .false.
+   logical, private, save :: timing_enabled = .false.
 
 contains
+
+subroutine init_sdqh0_timing()
+   character(len=8) :: env
+   integer :: stat
+   if (timing_init) return
+   timing_init = .true.
+   call get_environment_variable('XTB_SDQH0_TIMING', env, status=stat)
+   if (stat == 0 .and. len_trim(env) > 0) timing_enabled = .true.
+end subroutine init_sdqh0_timing
 
 
 subroutine getSelfEnergyFlat(hData, nShell, at, cn, qat, selfEnergy, dSEdcn, dSEdq)
@@ -199,10 +211,22 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    integer ishtyp,jshtyp,iptyp,jptyp,naoi,naoj,mli,mlj,iprim,jprim
    integer :: il, jl, itr
    real(wp) :: zi, zj, zetaij, km, hii, hjj, hav, shpoly, shpoly_acc, hav_shpoly
+   integer :: ntrans
+   real(wp) :: trans_time_sum, transform_time_sum, screen_time_sum, diag_time_sum
+   real(wp) :: t_block, t_local, t_screen
    integer itt(0:3)
    parameter(itt  =(/0,1,4,10/))
+   real(wp), parameter :: shpoly_tol = 1.0e-12_wp
    real(wp) :: saw(10)
+   logical :: skip_pair
+   integer, allocatable :: rowStart(:)
 
+
+   call init_sdqh0_timing()
+   trans_time_sum = 0.0_wp
+   transform_time_sum = 0.0_wp
+   screen_time_sum = 0.0_wp
+   diag_time_sum = 0.0_wp
 
    ! integrals
    H0(:) = 0.0_wp
@@ -212,16 +236,24 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    qpint = 0.0_wp
    ! --- Aufpunkt for moment operator
    point = 0.0_wp
+   ntrans = size(trans, dim=2)
+   allocate(rowStart(nao))
+   rowStart(1) = 0
+   do i = 2, nao
+      rowStart(i) = rowStart(i-1) + (i-1)
+   end do
 
    !$omp parallel do default(none) &
    !$omp shared(nat, xyz, at, nShell, hData, selfEnergy, caoshell, saoshell, &
-   !$omp& nprim, primcount, alp, cont, intcut, trans, point) &
-   !$omp private (iat,jat,izp,ci,ra,rb,saw, &
+   !$omp& nprim, primcount, alp, cont, intcut, trans, point, ntrans, rowStart) &
+   !$omp private (iat,jat,izp,ci,ra,rb,saw,dx,dy,dz, &
    !$omp& rab2,jzp,ish,ishtyp,icao,naoi,iptyp, &
    !$omp& jsh,jshmax,jshtyp,jcao,naoj,jptyp,ss,dd,qq,shpoly, shpoly_acc, hav_shpoly,&
    !$omp& est,alpi,alpj,ab,iprim,jprim,ip,jp,il,jl,hii,hjj,km,zi,zj,zetaij,hav, &
-   !$omp& mli,mlj,tmp,tmp1,tmp2,iao,jao,ii,jj,k,ij,itr,sblk,hblk,dblk,qblk) &
-   !$omp shared(sint,dpint,qpint,H0,H0_noovlp) &
+   !$omp& mli,mlj,tmp,tmp1,tmp2,iao,jao,ii,jj,k,ij,itr,sblk,hblk,dblk,qblk, &
+   !$omp& skip_pair,t_block, t_local, t_screen) &
+   !$omp reduction(+:trans_time_sum, transform_time_sum, screen_time_sum) &
+   !$omp shared(sint,dpint,qpint,H0,H0_noovlp,timing_enabled) &
    !$omp collapse(2) schedule(dynamic,32)
    do iat = 1, nat
       do jat = 1, nat
@@ -257,48 +289,85 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
 
                hav = 0.5_wp * km * (hii + hjj) * zetaij
 
+               skip_pair = .false.
                shpoly_acc = 0.0_wp
                sblk(1:mlj,1:mli) = 0.0_wp
                hblk(1:mlj,1:mli) = 0.0_wp
                dblk(:,1:mlj,1:mli) = 0.0_wp
                qblk(:,1:mlj,1:mli) = 0.0_wp
-               do itr = 1, size(trans, dim=2)
-                  rb(1:3) = xyz(1:3,jat) + trans(:, itr)
-                  rab2 = sum( (rb-ra)**2 )
+               block
+                  real(wp) :: shpoly_cache(ntrans)
+                  real(wp) :: rb_cache(3,ntrans)
+                  integer :: n_active, itr_loc
+                  n_active = 0
+                  if (timing_enabled) t_block = omp_get_wtime()
+                  do itr = 1, ntrans
+                     rb(1:3) = xyz(1:3,jat) + trans(:, itr)
+                     dx = rb(1) - ra(1)
+                     dy = rb(2) - ra(2)
+                     dz = rb(3) - ra(3)
+                     rab2 = dx*dx + dy*dy + dz*dz
 
-                  ! distance dependent polynomial
-                  shpoly=shellPoly(hData%shellPoly(il,izp),hData%shellPoly(jl,jzp),&
-                     &             hData%atomicRad(izp),hData%atomicRad(jzp),ra,rb)
+                     ! distance dependent polynomial
+                     if (timing_enabled) t_screen = omp_get_wtime()
+                     shpoly=shellPoly(hData%shellPoly(il,izp),hData%shellPoly(jl,jzp),&
+                        &             hData%atomicRad(izp),hData%atomicRad(jzp),ra,rb)
+                     if (timing_enabled) screen_time_sum = screen_time_sum + (omp_get_wtime()-t_screen)
 
-                  ss = 0.0_wp
-                  dd = 0.0_wp
-                  qq = 0.0_wp
-                  call get_multiints(icao,jcao,naoi,naoj,ishtyp,jshtyp,ra,rb,point, &
-                     &               intcut,nprim,primcount,alp,cont,ss,dd,qq)
-                  !transform from CAO to SAO
-                  call dtrf2(ss,ishtyp,jshtyp)
-                  do k = 1,3
-                     tmp(1:6,1:6) = dd(k,1:6,1:6)
-                     call dtrf2(tmp,ishtyp,jshtyp)
-                     dd(k,1:6,1:6) = tmp(1:6,1:6)
-                  enddo
-                  do k = 1,6
-                     tmp(1:6,1:6) = qq(k,1:6,1:6)
-                     call dtrf2(tmp,ishtyp,jshtyp)
-                     qq(k,1:6,1:6) = tmp(1:6,1:6)
-                  enddo
-                  hblk(1:mlj,1:mli) = hblk(1:mlj,1:mli) + shpoly * ss(1:mlj,1:mli)
-                  sblk(1:mlj,1:mli) = sblk(1:mlj,1:mli) + ss(1:mlj,1:mli)
-                  dblk(:,1:mlj,1:mli) = dblk(:,1:mlj,1:mli) + dd(:,1:mlj,1:mli)
-                  qblk(:,1:mlj,1:mli) = qblk(:,1:mlj,1:mli) + qq(:,1:mlj,1:mli)
-                  shpoly_acc = shpoly_acc + shpoly
-               enddo
+                     if (abs(shpoly) <= shpoly_tol) cycle
+                     n_active = n_active + 1
+                     rb_cache(:, n_active) = rb
+                     shpoly_cache(n_active) = shpoly
+                  end do
+
+                  skip_pair = (n_active == 0)
+                  if (.not. skip_pair) then
+                     do itr_loc = 1, n_active
+                        rb = rb_cache(:, itr_loc)
+                        shpoly = shpoly_cache(itr_loc)
+                        ss = 0.0_wp
+                        dd = 0.0_wp
+                        qq = 0.0_wp
+                        call get_multiints(icao,jcao,naoi,naoj,ishtyp,jshtyp,ra,rb,point, &
+                           &               intcut,nprim,primcount,alp,cont,ss,dd,qq)
+                        !transform from CAO to SAO
+                        if (timing_enabled) t_local = omp_get_wtime()
+                        call dtrf2(ss,ishtyp,jshtyp)
+                        if (timing_enabled) transform_time_sum = transform_time_sum + (omp_get_wtime()-t_local)
+                        do k = 1,3
+                           if (timing_enabled) t_local = omp_get_wtime()
+                           tmp(1:6,1:6) = dd(k,1:6,1:6)
+                           call dtrf2(tmp,ishtyp,jshtyp)
+                           dd(k,1:6,1:6) = tmp(1:6,1:6)
+                           if (timing_enabled) transform_time_sum = transform_time_sum + (omp_get_wtime()-t_local)
+                        enddo
+                        do k = 1,6
+                           if (timing_enabled) t_local = omp_get_wtime()
+                           tmp(1:6,1:6) = qq(k,1:6,1:6)
+                           call dtrf2(tmp,ishtyp,jshtyp)
+                           qq(k,1:6,1:6) = tmp(1:6,1:6)
+                           if (timing_enabled) transform_time_sum = transform_time_sum + (omp_get_wtime()-t_local)
+                        enddo
+                        hblk(1:mlj,1:mli) = hblk(1:mlj,1:mli) + shpoly * ss(1:mlj,1:mli)
+                        sblk(1:mlj,1:mli) = sblk(1:mlj,1:mli) + ss(1:mlj,1:mli)
+                        dblk(:,1:mlj,1:mli) = dblk(:,1:mlj,1:mli) + dd(:,1:mlj,1:mli)
+                        qblk(:,1:mlj,1:mli) = qblk(:,1:mlj,1:mli) + qq(:,1:mlj,1:mli)
+                        shpoly_acc = shpoly_acc + shpoly
+                     enddo
+                  end if
+                  if (timing_enabled) trans_time_sum = trans_time_sum + (omp_get_wtime()-t_block)
+               end block
+               if (skip_pair) cycle
                hav_shpoly = hav * shpoly_acc
                do ii = 1,mli
                   iao = ii+saoshell(ish,iat)
                   do jj = 1,mlj
                      jao = jj+saoshell(jsh,jat)
-                     ij = lin(iao, jao)
+                     if (iao >= jao) then
+                        ij = rowStart(iao) + jao
+                     else
+                        ij = rowStart(jao) + iao
+                     end if
                      H0(ij) = H0(ij) + hav * hblk(jj, ii)
                      H0_noovlp(ij) = H0_noovlp(ij) + hav_shpoly
                      sint(jao, iao) = sint(jao, iao) + sblk(jj, ii)
@@ -312,6 +381,7 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    enddo
    !$omp parallel do default(none) shared(nao, sint, dpint, qpint) private(iao, jao)
    do iao = 1, nao
+      !$omp simd
       do jao = 1, iao - 1
          sint(iao, jao) = sint(jao, iao)
          dpint(:, iao, jao) = dpint(:, jao, iao)
@@ -321,19 +391,22 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
 
    ! diagonal elements
    !$omp parallel do default(none) schedule(dynamic) &
-   !$omp shared(H0, H0_noovlp, sint, dpint, qpint) &
+   !$omp shared(H0, H0_noovlp, sint, dpint, qpint, timing_enabled) &
    !$omp shared(nat, xyz, at, nShell, hData, saoshell, selfEnergy, caoshell, &
-   !$omp& point, intcut, nprim, primcount, alp, cont) &
+   !$omp& point, intcut, nprim, primcount, alp, cont, rowStart) &
    !$omp private(iat, ra, izp, ish, ishtyp, iao, i, ii, icao, naoi, iptyp, &
-   !$omp& jsh, jshtyp, jcao, ss, dd, qq, jao, jj, naoj, jptyp, mli, mlj, dblk, qblk, tmp)
+   !$omp& jsh, jshtyp, jcao, ss, dd, qq, jao, jj, naoj, jptyp, mli, mlj, dblk, qblk, tmp, &
+   !$omp& t_block, t_local) &
+   !$omp reduction(+:diag_time_sum, transform_time_sum)
    do iat = 1, nat
+      if (timing_enabled) t_block = omp_get_wtime()
       ra = xyz(:, iat)
       izp = at(iat)
       do ish = 1, nShell(izp)
          ishtyp = hData%angShell(ish,izp)
          do iao = 1, llao2(ishtyp)
             i = iao+saoshell(ish,iat)
-            ii = i*(1+i)/2
+            ii = rowStart(i) + i
             sint(i,i) = 1.0_wp + sint(i,i)
             H0(ii) = H0(ii) + selfEnergy(ish, iat)
             H0_noovlp(ii) = H0_noovlp(ii) + selfEnergy(ish, iat)
@@ -353,14 +426,18 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
             call get_multiints(icao,jcao,naoi,naoj,ishtyp,jshtyp,ra,ra,point, &
                &               intcut,nprim,primcount,alp,cont,ss,dd,qq)
             do k = 1,3
+               if (timing_enabled) t_local = omp_get_wtime()
                tmp(1:6, 1:6) = dd(k,1:6, 1:6)
                call dtrf2(tmp, ishtyp, jshtyp)
                dd(k, 1:6, 1:6) = tmp(1:6, 1:6)
+               if (timing_enabled) transform_time_sum = transform_time_sum + (omp_get_wtime()-t_local)
             enddo
             do k = 1,6
+               if (timing_enabled) t_local = omp_get_wtime()
                tmp(1:6, 1:6) = qq(k, 1:6, 1:6)
                call dtrf2(tmp, ishtyp, jshtyp)
                qq(k, 1:6, 1:6) = tmp(1:6, 1:6)
+               if (timing_enabled) transform_time_sum = transform_time_sum + (omp_get_wtime()-t_local)
             enddo
             mli = llao2(ishtyp)
             mlj = llao2(jshtyp)
@@ -382,8 +459,16 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
                end do
             end do
          end do
+         if (timing_enabled) diag_time_sum = diag_time_sum + (omp_get_wtime()-t_block)
       end do
    end do
+
+   if (timing_enabled) then
+      write(*,'(a,3f12.6)') 'build_SDQH0 timing [translation, transform, screening] (s):', &
+         trans_time_sum, transform_time_sum, screen_time_sum
+      write(*,'(a,f12.6)') 'build_SDQH0 diagonal (s):', diag_time_sum
+   end if
+   deallocate(rowStart)
 
 end subroutine build_SDQH0
 
