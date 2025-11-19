@@ -99,6 +99,7 @@ subroutine test_coulomb_point_cluster(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -112,6 +113,7 @@ subroutine test_coulomb_point_cluster(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))
@@ -140,6 +142,70 @@ subroutine test_coulomb_point_cluster(error)
    call coulomb%getCoulombDerivs(mol, charges, djdr, djdtr, djdL)
    call contract(djdr, charges, gradient)
    call contract(djdL, charges, sigma)
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, charges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
 
    ! check numerical gradient
    do ii = 1, nat
@@ -268,6 +334,7 @@ subroutine test_coulomb_point_pbc3d(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -285,6 +352,7 @@ subroutine test_coulomb_point_pbc3d(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))
@@ -442,6 +510,7 @@ subroutine test_coulomb_gfn1_cluster(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -455,6 +524,7 @@ subroutine test_coulomb_gfn1_cluster(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))
@@ -572,6 +642,22 @@ subroutine test_coulomb_gfn1_cluster(error)
    call coulomb%getCoulombDerivs(mol, shellCharges, djdr, djdtr, djdL)
    call contract(djdr, shellCharges, gradient)
    call contract(djdL, shellCharges, sigma)
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, shellCharges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
+
+   gradStream(:, :) = 0.0_wp
+   call coulomb%accumulateGradient(mol, shellCharges, gradStream)
+   do ii = 1, nat
+      do jj = 1, 3
+         call check(error, gradStream(jj, ii), gradient(jj, ii), thr=thr)
+      end do
+   end do
 
    ! check numerical gradient
    do ii = 1, nat
@@ -702,6 +788,7 @@ subroutine test_coulomb_gfn1_pbc3d(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -720,6 +807,7 @@ subroutine test_coulomb_gfn1_pbc3d(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))
@@ -900,6 +988,7 @@ subroutine test_coulomb_gfn2_cluster(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -913,6 +1002,7 @@ subroutine test_coulomb_gfn2_cluster(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))
@@ -1179,6 +1269,7 @@ subroutine test_coulomb_gfn2_pbc3d(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -1197,6 +1288,7 @@ subroutine test_coulomb_gfn2_pbc3d(error)
    allocate(shift(nsh))
    allocate(jMat(nsh, nsh))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nsh))
    allocate(djdtr(3, nsh))
    allocate(djdL(3, 3, nsh))
@@ -1340,6 +1432,7 @@ subroutine test_coulomb_gaussian_cluster(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -1353,6 +1446,7 @@ subroutine test_coulomb_gaussian_cluster(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))
@@ -1512,6 +1606,7 @@ subroutine test_coulomb_gaussian_pbc3d(error)
       & [1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 1.0_wp], &
       & [3, 3])
    real(wp), allocatable :: gradient(:, :)
+   real(wp), allocatable :: gradStream(:, :)
    real(wp), allocatable :: jmat(:, :)
    real(wp), allocatable :: shift(:)
    real(wp), allocatable :: djdr(:, :, :)
@@ -1529,6 +1624,7 @@ subroutine test_coulomb_gaussian_pbc3d(error)
    allocate(shift(nat))
    allocate(jMat(nat, nat))
    allocate(gradient(3, nat))
+   allocate(gradStream(3, nat))
    allocate(djdr(3, nat, nat))
    allocate(djdtr(3, nat))
    allocate(djdL(3, 3, nat))

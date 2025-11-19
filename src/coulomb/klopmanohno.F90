@@ -71,6 +71,9 @@ module xtb_coulomb_klopmanohno
       !> Returns derivatives of Coulomb matrix
       procedure :: getCoulombDerivs
 
+      !> Contract derivatives with charges without storing djdr
+      procedure :: accumulateGradient
+
    end type TKlopmanOhno
 
 
@@ -466,6 +469,184 @@ subroutine getCoulombDerivs(self, mol, qvec, djdr, djdtr, djdL)
    end select
 
 end subroutine getCoulombDerivs
+
+
+subroutine accumulateGradient(self, mol, qvec, gradient)
+
+   !> Instance of the Coulomb evaluator
+   class(TKlopmanOhno), intent(inout) :: self
+
+   !> Molecular structure data
+   type(TMolecule), intent(in) :: mol
+
+   !> Charges
+   real(wp), intent(in) :: qvec(:)
+
+   !> Gradient accumulator
+   real(wp), intent(inout) :: gradient(:, :)
+
+   select case(self%boundaryCondition)
+   case(boundaryCondition%cluster)
+      call accumulateGradientCluster(mol, self%itbl, self%gamAverage, &
+         & self%gExp, self%hardness, qvec, gradient)
+   case(boundaryCondition%pbc3d)
+      call accumulateGradientPBC3D(self%wsCell, mol%id, self%itbl, &
+         & self%gamAverage, self%gExp, self%hardness, self%alpha, mol%volume, &
+         & self%rTrans, self%gTrans(:, 2:), qvec, gradient)
+   end select
+
+end subroutine accumulateGradient
+
+
+subroutine accumulateGradientCluster(mol, itbl, gamAverage, gExp, hardness, &
+      & qvec, gradient)
+
+   !> Molecular structure data
+   type(TMolecule), intent(in) :: mol
+
+   !> Index table
+   integer, intent(in) :: itbl(:, :)
+
+   !> Averaging function for the hardnesses
+   procedure(funcAverage) :: gamAverage
+
+   !> Shell/Atomic hardnesses for each species
+   real(wp), intent(in) :: hardness(:, :)
+
+   !> Generalized exponent
+   real(wp), intent(in) :: gExp
+
+   !> Charges
+   real(wp), intent(in) :: qvec(:)
+
+   !> Gradient accumulator
+   real(wp), intent(inout) :: gradient(:, :)
+
+   integer :: nat, iat, jat, ish, jsh, ii, jj, iid, jid
+   real(wp) :: vec(3), r1, gij, g1, dG(3), qi, qj, qprod
+   real(wp), allocatable :: gradAcc(:, :)
+
+   nat = len(mol)
+   if (nat == 0) return
+
+   allocate(gradAcc(size(gradient, dim=1), nat), source=0.0_wp)
+
+   !$omp parallel do default(none) reduction(+:gradAcc) &
+   !$omp shared(mol, itbl, qvec, gExp, hardness, nat) &
+   !$omp private(iat, jat, ish, jsh, ii, jj, iid, jid, vec, r1, gij, g1, dG, qi, qj, qprod)
+   do iat = 1, nat
+      ii = itbl(1, iat)
+      iid = mol%id(iat)
+      do jat = 1, iat-1
+         jj = itbl(1, jat)
+         jid = mol%id(jat)
+         vec(:) = mol%xyz(:, jat) - mol%xyz(:, iat)
+         r1 = sqrt(sum(vec**2))
+         do ish = 1, itbl(2, iat)
+            qi = qvec(ii+ish)
+            do jsh = 1, itbl(2, jat)
+               qj = qvec(jj+jsh)
+               gij = gamAverage(hardness(ish, iid), hardness(jsh, jid))
+               g1 = 1.0_wp / (r1**gExp + gij**(-gExp))
+               dG(:) = -vec * r1**(gExp-2.0_wp) * g1 * g1**(1.0_wp/gExp)
+               qprod = qi * qj
+               gradAcc(:, iat) = gradAcc(:, iat) - dG*qprod
+               gradAcc(:, jat) = gradAcc(:, jat) + dG*qprod
+            end do
+         end do
+      end do
+   end do
+   !$omp end parallel do
+
+   gradient(:, :nat) = gradient(:, :nat) + gradAcc(:, :)
+
+end subroutine accumulateGradientCluster
+
+
+subroutine accumulateGradientPBC3D(wsCell, id, itbl, gamAverage, gExp, &
+      & hardness, alpha, volume, rTrans, gTrans, qvec, gradient)
+
+   !> Wigner-Seitz cell
+   type(TWignerSeitzCell), intent(in) :: wsCell
+
+   !> Identity
+   integer, intent(in) :: id(:)
+
+   !> Averaging function for the hardnesses
+   procedure(funcAverage) :: gamAverage
+
+   !> Shell/Atomic hardnesses for each species
+   real(wp), intent(in) :: hardness(:, :)
+
+   !> Generalized exponent
+   real(wp), intent(in) :: gExp
+
+   !> Convergence factor
+   real(wp), intent(in) :: alpha
+
+   !> Cell volume
+   real(wp), intent(in) :: volume
+
+   !> Real space lattice translations
+   real(wp), intent(in) :: rTrans(:, :)
+
+   !> Reciprocal space lattice translations
+   real(wp), intent(in) :: gTrans(:, :)
+
+   !> Index table
+   integer, intent(in) :: itbl(:, :)
+
+   !> Charges
+   real(wp), intent(in) :: qvec(:)
+
+   !> Gradient accumulator
+   real(wp), intent(inout) :: gradient(:, :)
+
+   integer :: nat, iat, jat, ish, jsh, ii, jj, ineigh, img, iid, jid
+   real(wp) :: weight, vec(3), gij, dG(3), dGg(3), dGr(3)
+   real(wp) :: dSg(3, 3), dSr(3, 3), qi, qj, qprod
+   real(wp), allocatable :: gradAcc(:, :)
+
+   nat = size(wsCell%neighs)
+   if (nat == 0) return
+
+   allocate(gradAcc(size(gradient, dim=1), nat), source=0.0_wp)
+
+   !$omp parallel do default(none) reduction(+:gradAcc) &
+   !$omp shared(wsCell, id, itbl, hardness, gExp, qvec, alpha, volume, gTrans, rTrans, nat) &
+   !$omp private(iat, ineigh, img, jat, ish, jsh, ii, jj, iid, jid, vec, weight, gij, dG, dGg, dGr, dSg, dSr, qi, qj, qprod)
+   do iat = 1, nat
+      ii = itbl(1, iat)
+      iid = id(iat)
+      do ineigh = 1, wsCell%neighs(iat)
+         img = wsCell%ineigh(ineigh, iat)
+         jat = wsCell%image(img)
+         jj = itbl(1, jat)
+         jid = id(jat)
+         weight = wsCell%weight(ineigh, iat)
+         vec(:) = wsCell%coords(:, img) - wsCell%coords(:, iat)
+         call ewaldDerivPBC3D(vec, gTrans, 0.0_wp, volume, alpha, weight, dGg, dSg)
+         if (iat /= jat) then
+            do ish = 1, itbl(2, iat)
+               qi = qvec(ii+ish)
+               do jsh = 1, itbl(2, jat)
+                  qj = qvec(jj+jsh)
+                  gij = gamAverage(hardness(ish, iid), hardness(jsh, jid))
+                  call getRDeriv(vec, gij, gExp, rTrans, alpha, weight, dGr, dSr)
+                  dG(:) = dGg + dGr
+                  qprod = qi * qj
+                  gradAcc(:, iat) = gradAcc(:, iat) - dG*qprod
+                  gradAcc(:, jat) = gradAcc(:, jat) + dG*qprod
+               end do
+            end do
+         end if
+      end do
+   end do
+   !$omp end parallel do
+
+   gradient(:, :nat) = gradient(:, :nat) + gradAcc(:, :)
+
+end subroutine accumulateGradientPBC3D
 
 
 subroutine getCoulombDerivsCluster(mol, itbl, gamAverage, gExp, hardness, &

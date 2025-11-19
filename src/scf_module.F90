@@ -151,9 +151,6 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    integer, allocatable :: idnum(:)
    type(TxTBCoulomb) :: ies
    type(TKlopmanOhno) :: coulomb
-   real(wp), allocatable :: djdr(:, :, :)
-   real(wp), allocatable :: djdtr(:, :)
-   real(wp), allocatable :: djdL(:, :, :)
 !  AES stuff
    type(TxTBMultipole), allocatable :: aes
    real(wp),allocatable  :: dpint(:,:,:),qpint(:,:,:)
@@ -778,12 +775,8 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 
    ! ------------------------------------------------------------------------
    ! Derivative of electrostatic energy
-   allocate(djdr(3, mol%n, basis%nshell))
-   allocate(djdtr(3, basis%nshell))
-   allocate(djdL(3, 3, basis%nshell))
-   call coulomb%getCoulombDerivs(mol, wfn%qsh, djdr, djdtr, djdL)
-   call mctc_gemv(djdr, wfn%qsh, gradient, beta=1.0_wp)
-   !call mctc_gemv(djdL, wfn%qsh, sigma, beta=1.0_wp)
+   call coulomb%accumulateGradient(mol, wfn%qsh, gradient)
+   ! stress contribution would require full djdL tensor
 
    ! ------------------------------------------------------------------------
    ! ES point charge embedding

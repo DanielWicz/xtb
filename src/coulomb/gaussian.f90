@@ -47,6 +47,9 @@ module xtb_coulomb_gaussian
       !> Returns derivatives of Coulomb matrix
       procedure :: getCoulombDerivs
 
+      !> Contract derivatives with charges without keeping djdr
+      procedure :: accumulateGradient
+
    end type TGaussianSmeared
 
 
@@ -384,6 +387,170 @@ subroutine getCoulombDerivs(self, mol, qvec, djdr, djdtr, djdL)
    end select
 
 end subroutine getCoulombDerivs
+
+
+subroutine accumulateGradient(self, mol, qvec, gradient)
+
+   !> Instance of the Coulomb evaluator
+   class(TGaussianSmeared), intent(inout) :: self
+
+   !> Molecular structure data
+   type(TMolecule), intent(in) :: mol
+
+   !> Charges
+   real(wp), intent(in) :: qvec(:)
+
+   !> Gradient accumulator
+   real(wp), intent(inout) :: gradient(:, :)
+
+   select case(self%boundaryCondition)
+   case(boundaryCondition%cluster)
+      call accumulateGradientCluster(mol, self%itbl, self%rad, qvec, gradient)
+   case(boundaryCondition%pbc3d)
+      call accumulateGradientPBC3D(self%wsCell, mol%id, self%itbl, self%rad, &
+         & self%alpha, mol%volume, self%rTrans, self%gTrans(:, 2:), qvec, &
+         & gradient)
+   end select
+
+end subroutine accumulateGradient
+
+
+subroutine accumulateGradientCluster(mol, itbl, rad, qvec, gradient)
+
+   !> Molecular structure data
+   type(TMolecule), intent(in) :: mol
+
+   !> Index table
+   integer, intent(in) :: itbl(:, :)
+
+   !> Radii
+   real(wp), intent(in) :: rad(:, :)
+
+   !> Charges
+   real(wp), intent(in) :: qvec(:)
+
+   !> Gradient accumulator
+   real(wp), intent(inout) :: gradient(:, :)
+
+   integer :: nat, iat, jat, ish, jsh, ii, jj, iid, jid
+   real(wp) :: vec(3), r2, gij, g1, dG(3), qi, qj, qprod
+   real(wp), allocatable :: gradAcc(:, :)
+
+   nat = len(mol)
+   if (nat == 0) return
+
+   allocate(gradAcc(size(gradient, dim=1), nat), source=0.0_wp)
+
+   !$omp parallel do default(none) reduction(+:gradAcc) &
+   !$omp shared(mol, itbl, qvec, rad, nat) &
+   !$omp private(iat, jat, ish, jsh, ii, jj, iid, jid, vec, r2, gij, g1, dG, qi, qj, qprod)
+   do iat = 1, nat
+      ii = itbl(1, iat)
+      iid = mol%id(iat)
+      do jat = 1, iat-1
+         jj = itbl(1, jat)
+         jid = mol%id(jat)
+         vec(:) = mol%xyz(:, jat) - mol%xyz(:, iat)
+         r2 = sum(vec**2)
+         do ish = 1, itbl(2, iat)
+            qi = qvec(ii+ish)
+            do jsh = 1, itbl(2, jat)
+               qj = qvec(jj+jsh)
+               gij = 1.0_wp/(rad(ish, iid)**2 + rad(jsh, jid)**2)
+               g1 = erf(sqrt(gij*r2))/sqrt(r2)
+               dG(:) = (2*sqrt(gij)*exp(-gij*r2)/sqrtpi - g1) * vec/r2
+               qprod = qi * qj
+               gradAcc(:, iat) = gradAcc(:, iat) - dG*qprod
+               gradAcc(:, jat) = gradAcc(:, jat) + dG*qprod
+            end do
+         end do
+      end do
+   end do
+   !$omp end parallel do
+
+   gradient(:, :nat) = gradient(:, :nat) + gradAcc(:, :)
+
+end subroutine accumulateGradientCluster
+
+
+subroutine accumulateGradientPBC3D(wsCell, id, itbl, rad, alpha, volume, rTrans, &
+      & gTrans, qvec, gradient)
+
+   !> Wigner-Seitz cell
+   type(TWignerSeitzCell), intent(in) :: wsCell
+
+   !> Identity
+   integer, intent(in) :: id(:)
+
+   !> Radii
+   real(wp), intent(in) :: rad(:, :)
+
+   !> Cell volume
+   real(wp), intent(in) :: volume
+
+   !> Convergence factor
+   real(wp), intent(in) :: alpha
+
+   !> Real space lattice translations
+   real(wp), intent(in) :: rTrans(:, :)
+
+   !> Reciprocal space lattice translations
+   real(wp), intent(in) :: gTrans(:, :)
+
+   !> Index table
+   integer, intent(in) :: itbl(:, :)
+
+   !> Charges
+   real(wp), intent(in) :: qvec(:)
+
+   !> Gradient accumulator
+   real(wp), intent(inout) :: gradient(:, :)
+
+   integer :: nat, iat, jat, ish, jsh, ii, jj, ineigh, img, iid, jid
+   real(wp) :: weight, vec(3), gij, dG(3), dGg(3), dGr(3)
+   real(wp) :: dSg(3, 3), dSr(3, 3), qi, qj, qprod
+   real(wp), allocatable :: gradAcc(:, :)
+
+   nat = size(wsCell%neighs)
+   if (nat == 0) return
+
+   allocate(gradAcc(size(gradient, dim=1), nat), source=0.0_wp)
+
+   !$omp parallel do default(none) reduction(+:gradAcc) &
+   !$omp shared(wsCell, id, itbl, rad, qvec, alpha, volume, gTrans, rTrans, nat) &
+   !$omp private(iat, ineigh, img, jat, ish, jsh, ii, jj, iid, jid, vec, weight, gij, dG, dGg, dGr, dSg, dSr, qi, qj, qprod)
+   do iat = 1, nat
+      ii = itbl(1, iat)
+      iid = id(iat)
+      do ineigh = 1, wsCell%neighs(iat)
+         img = wsCell%ineigh(ineigh, iat)
+         jat = wsCell%image(img)
+         jj = itbl(1, jat)
+         jid = id(jat)
+         weight = wsCell%weight(ineigh, iat)
+         vec(:) = wsCell%coords(:, img) - wsCell%coords(:, iat)
+         call ewaldDerivPBC3D(vec, gTrans, 0.0_wp, volume, alpha, weight, dGg, dSg)
+         if (iat /= jat) then
+            do ish = 1, itbl(2, iat)
+               qi = qvec(ii+ish)
+               do jsh = 1, itbl(2, jat)
+                  qj = qvec(jj+jsh)
+                  gij = 1.0_wp/sqrt(rad(ish, iid)**2 + rad(jsh, jid)**2)
+                  call getRDeriv(vec, gij, rTrans, alpha, weight, dGr, dSr)
+                  dG(:) = dGg + dGr
+                  qprod = qi * qj
+                  gradAcc(:, iat) = gradAcc(:, iat) - dG*qprod
+                  gradAcc(:, jat) = gradAcc(:, jat) + dG*qprod
+               end do
+            end do
+         end if
+      end do
+   end do
+   !$omp end parallel do
+
+   gradient(:, :nat) = gradient(:, :nat) + gradAcc(:, :)
+
+end subroutine accumulateGradientPBC3D
 
 
 subroutine getCoulombDerivsCluster(mol, itbl, rad, qvec, djdr, djdtr, djdL)
