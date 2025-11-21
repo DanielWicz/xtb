@@ -337,51 +337,65 @@ module xtb_gfnff_fraghess
         integer                  :: nat3_cur                     ! nat in fragments * 3
         integer                  :: info                         ! for ssyev
         integer                  :: lwork                        ! for ssyev
-        logical                  :: hess_mask(3*nat,3*nat)       ! masked hessian array
-        real(sp)                 :: ev_calc(3*nat,3*nat)         ! eigenvectors of entire system
+        real(sp), allocatable    :: ev_calc(:,:)                 ! eigenvectors of entire system
         real(sp), allocatable    :: mini_hess(:,:)               ! eigenvectors of fragment
         real(sp), allocatable    :: eig(:)                       ! eigenvalues of fragment
         real(sp), allocatable    :: aux(:)                       ! for ssyev
+        integer,  allocatable    :: idx(:)                       ! mapping fragment -> global indices
 
 
-        ev_calc  = 0.0e0_sp
-        eig_calc = 0.0e0_sp
         nat3     = 3 * nat
+        allocate(ev_calc(nat3,nat3), source = 0.0e0_sp)
+        eig_calc = 0.0e0_sp
 
 !$omp parallel default(none) &
-!$omp private(isystem,i,ii,j,jj,nat_cur,nat3_cur,mini_hess,hess_mask,eig,lwork,aux,info) &
+!$omp private(isystem,i,ii,j,jj,k,nat_cur,nat3_cur,mini_hess,eig,lwork,aux,info,idx) &
 !$omp shared(nsystem,ev_calc,eig_calc,hess,nspinsyst,ispinsyst)
-!!$omp do schedule(static)
-!$omp do reduction(+:ev_calc,eig_calc)
+!$omp do schedule(static)
         do isystem = 1 , nsystem
-           hess_mask = .false.
-           do i = 1,nspinsyst(isystem)
-              do j = 1,i
+           nat_cur = nspinsyst(isystem)
+           if (nat_cur <= 0) cycle
 
-                 nat_cur =  nspinsyst(isystem)
-                 nat3_cur = 3 * nat_cur
-                 ii = 3*ispinsyst(i,isystem)
-                 jj = 3*ispinsyst(j,isystem)
-                 hess_mask(ii-2:ii,jj-2:jj) = .true.
-                 hess_mask(jj-2:jj,ii-2:ii) = .true.
-
-               end do
-           end do
-
+           nat3_cur = 3 * nat_cur
            allocate( mini_hess(nat3_cur,nat3_cur), source = 0.0e0_sp )
            allocate( eig(nat3_cur), source = 0.0e0_sp )
+           allocate( idx(nat3_cur) )
 
-           mini_hess = reshape( pack( hess, mask = hess_mask ), shape( mini_hess ) )
+           ! Build index mapping for current fragment
+           k = 0
+           do i = 1, nat_cur
+              ii = ispinsyst(i,isystem)
+              k = k + 1; idx(k) = 3*ii - 2
+              k = k + 1; idx(k) = 3*ii - 1
+              k = k + 1; idx(k) = 3*ii
+           end do
+
+           ! Gather sub-block of Hessian belonging to fragment
+           do i = 1, nat3_cur
+              ii = idx(i)
+              do j = 1, nat3_cur
+                 jj = idx(j)
+                 mini_hess(i,j) = hess(ii,jj)
+              end do
+           end do
+
            lwork = 1 + 6*nat3_cur + 2*nat3_cur**2
            allocate(aux(lwork))
            call ssyev ('V','U',nat3_cur,mini_hess,nat3_cur,eig,aux,lwork,info)
            deallocate(aux)
-!!$omp critical
-           ev_calc  = unpack( reshape( mini_hess, [ nat3_cur*nat3_cur ]  ), mask = hess_mask, field = ev_calc )
-           eig_calc = unpack( eig, mask = any(hess_mask,1), field = eig_calc )
-!!$omp end critical
+
+           ! Scatter results back into global arrays
+           do i = 1, nat3_cur
+              ii = idx(i)
+              eig_calc(ii) = eig(i)
+              do j = 1, nat3_cur
+                 jj = idx(j)
+                 ev_calc(ii,jj) = mini_hess(i,j)
+              end do
+           end do
 
            deallocate( mini_hess,eig )
+           deallocate( idx )
 
         end do
 !$omp end do
