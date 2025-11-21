@@ -195,6 +195,12 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
       end do
    end do
+   !$omp end do
+
+   ! Explicitly release per‑thread work arrays to avoid heap growth with
+   ! some OpenMP runtimes (observed with Intel) during large Hessian jobs.
+   if (allocated(gr)) deallocate(gr)
+   if (allocated(gl)) deallocate(gl)
    !$omp end parallel
 end subroutine hessian
 
