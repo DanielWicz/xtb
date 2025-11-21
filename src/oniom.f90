@@ -477,6 +477,11 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, energy, gradien
    results%gnorm=norm2(gradient)   
    deallocate(gradient_high)
    deallocate(gradient_low)
+   if (allocated(arr_gh))      deallocate(arr_gh)
+   if (allocated(arr_gl))      deallocate(arr_gl)
+   if (allocated(jacobian))    deallocate(jacobian)
+   if (allocated(idx2))        deallocate(idx2)
+   call inner_mol%deallocate
 
 end subroutine singlepoint
 
@@ -567,6 +572,14 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       end do
       dipgrad(:, ic+1:ic+3) = dipgrad(:, ic+1:ic+3) + dipgrad_model(:, im+1:im+3)
    end do
+
+   ! explicit cleanup to avoid allocator-specific leaks (observed with Intel)
+   if (allocated(hess_model))      deallocate(hess_model)
+   if (allocated(dipgrad_model))   deallocate(dipgrad_model)
+   if (allocated(list_model))      deallocate(list_model)
+   if (allocated(jacobian))        deallocate(jacobian)
+   if (allocated(idx2))            deallocate(idx2)
+   call mol_model%deallocate
 
 end subroutine hessian
 
