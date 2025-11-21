@@ -786,6 +786,17 @@ subroutine l_ancopt &
    ! finally flush the timer to the output unit
    if (minpr.and.profile) call timer%write(env%unit,'L-ANCopt')
 
+   ! explicit cleanup to avoid allocator pile-up across LBFGS microcycles
+   if (allocated(pmode))  deallocate(pmode)
+   if (allocated(hessp))  deallocate(hessp)
+   if (allocated(trafo))  deallocate(trafo)
+   if (allocated(xyz0))   deallocate(xyz0)
+   if (allocated(xyzopt)) deallocate(xyzopt)
+   if (allocated(hess))   deallocate(hess)
+   if (allocated(eig))    deallocate(eig)
+   if (allocated(hdiag))  deallocate(hdiag)
+   if (allocated(avconv)) deallocate(avconv)
+
 end subroutine l_ancopt
 
 !> updates displacement using the formula given by Nocedal, generally known
@@ -1132,6 +1143,15 @@ subroutine lbfgs_relax &
       if (profile) call timer%measure(8)
 
    enddo opt_cycle
+
+   ! release LBFGS work arrays explicitly (Intel runtime may cache aggressively)
+   if (allocated(lbfgs_s))   deallocate(lbfgs_s)
+   if (allocated(lbfgs_y))   deallocate(lbfgs_y)
+   if (allocated(lbfgs_rho)) deallocate(lbfgs_rho)
+   if (allocated(displacement)) deallocate(displacement)
+   if (allocated(g_anc))     deallocate(g_anc)
+   if (allocated(glast))     deallocate(glast)
+   if (allocated(anc))       deallocate(anc)
 
 end subroutine lbfgs_relax
 
