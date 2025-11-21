@@ -918,6 +918,28 @@ subroutine cutbond(self, env, mol, chk, topo, inner_mol, jacobian, idx2)
    set1 = .false.
    set2 = .false.  
 
+   ! Explicitly release local work arrays to keep memory flat across cycles
+   if (allocated(at))            deallocate(at)
+   if (allocated(xyz))           deallocate(xyz)
+   if (allocated(at_out))        deallocate(at_out)
+   if (allocated(xyz_out))       deallocate(xyz_out)
+   if (allocated(brokenBondPairs)) deallocate(brokenBondPairs)
+   if (allocated(bonded))        deallocate(bonded)
+   if (allocated(outer_mol))     call outer_mol%deallocate
+   if (allocated(topo)) then
+      if (allocated(topo%list)) deallocate(topo%list)
+      deallocate(topo)
+   end if
+   if (allocated(neighList%neighs)) then
+      if (allocated(neighList%image))   deallocate(neighList%image)
+      if (allocated(neighList%coords))  deallocate(neighList%coords)
+      if (allocated(neighList%trans))   deallocate(neighList%trans)
+      if (allocated(neighList%iNeigh))  deallocate(neighList%iNeigh)
+      if (allocated(neighList%dist2))   deallocate(neighList%dist2)
+      if (allocated(neighList%weight))  deallocate(neighList%weight)
+      deallocate(neighList%neighs)
+   end if
+
 end subroutine cutbond
 
 subroutine check_dist(mol, env, nla)
