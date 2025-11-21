@@ -7,6 +7,11 @@ module xtb_gfnff_neighbor
   use xtb_mctc_sort
 
   implicit none
+
+  ! prefer half precision (fp16) for neighbour screening if compiler provides it,
+  ! otherwise fall back to single precision to keep portability.
+  integer, parameter :: hp_candidate = selected_real_kind(3, 4)
+  integer, parameter :: nbp = merge(hp_candidate, sp, hp_candidate > 0 .and. hp_candidate < sp)
   private
   
   public :: TNeigh
@@ -114,12 +119,12 @@ contains
       integer, intent(in) :: icase
       !integer, intent(inout) :: nbf(20,mol%n)
       type(TGFFData), intent(in) :: param
-      real(sp), allocatable :: dist2(:,:,:)
+      real(nbp), allocatable :: dist2(:,:,:)
       integer :: i,j,iTr
       real(wp) :: dx,dy,dz
       
       ! store squared distances in single precision to cut memory traffic and avoid expensive SQRT
-      allocate(dist2(mol%n,mol%n,self%numctr), source=0.0_sp)
+      allocate(dist2(mol%n,mol%n,self%numctr), source=0.0_nbp)
       !$omp parallel do collapse(3) default(none) shared(dist2,mol,self) &
       !$omp private(iTr,i,j,dx,dy,dz)
       do iTr=1, self%numctr
@@ -128,7 +133,7 @@ contains
            dx = mol%xyz(1,i) - (mol%xyz(1,j)+self%transVec(1,iTr))
            dy = mol%xyz(2,i) - (mol%xyz(2,j)+self%transVec(2,iTr))
            dz = mol%xyz(3,i) - (mol%xyz(3,j)+self%transVec(3,iTr))
-           dist2(j,i,iTr) = real(dx*dx + dy*dy + dz*dz, kind=sp)
+           dist2(j,i,iTr) = real(dx*dx + dy*dy + dz*dz, kind=nbp)
          enddo
        enddo
       enddo
@@ -411,12 +416,12 @@ contains
       type(TNeigh), intent(inout) :: self
       integer, intent(in) :: n,at(n)
       real(wp), intent(in) :: rad(n*(n+1)/2)
-      real(sp), intent(in) :: dist(n,n,self%numctr)
+      real(nbp), intent(in) :: dist(n,n,self%numctr)
       real(wp), intent(in) :: mchar(n),f,f2
       integer i,j,k,iTr,nn,icase,hc_crit,nnfi,nnfj,lin
       integer, allocatable :: tag(:,:,:)
       real(wp) rco,fm
-      real(sp) :: d2, thr2
+      real(nbp) :: d2, thr2
       allocate(tag(n,n,self%numctr), source=0)
       if(icase.eq.1) then
         if(.not. allocated(self%nbf)) then
@@ -445,7 +450,7 @@ contains
           do j=1,n
             k=lin(j,i)
             d2=dist(j,i,iTr)
-            if (d2<=0.0_sp) cycle
+            if (d2<=0.0_nbp) cycle
             fm=1.0d0
 !           full case                                                           
             if(icase.eq.1)then
@@ -481,7 +486,7 @@ contains
 
             rco=rad(k)
             ! small safety factor keeps borderline neighbours when using single precision
-            thr2 = (real(fm,sp)*real(f,sp)*real(rco,sp))**2 * (1.0_sp + 5.0e-4_sp)
+            thr2 = (real(fm,nbp)*real(f,nbp)*real(rco,nbp))**2 * (1.0_nbp + 5.0e-4_nbp)
 
             if(d2 < thr2) tag(j,i,iTr)=1
           enddo
