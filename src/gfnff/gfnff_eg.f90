@@ -17,7 +17,6 @@
 
 module xtb_gfnff_eg
    
-!$ use omp_lib
    use xtb_gfnff_ini2
    use xtb_gfnff_data, only : TGFFData
    use xtb_gfnff_neighbourlist, only : TGFFNeighbourList, new
@@ -174,7 +173,6 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
    real*8 :: gsolv, gborn, ghb, gsasa, gshift
 
    integer i,j,k,l,m,ij,nd3,iTr,iTri,iTrj,iTrk,iTrl,iTrDum,wscAt,atnb,inb,nbb
-   integer d3idx
 
    integer ati,atj,iat,jat
    integer hbA,hbB,nbk,nbnbk
@@ -196,7 +194,6 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
    real*8, allocatable :: sqrab(:), srab(:)
    real*8, allocatable :: g5tmp(:,:)
    integer,allocatable :: d3list(:,:)
-   integer,allocatable :: d3count(:)
    real(wp),allocatable :: xtmp(:)
    type(tb_timer) :: timer
    real(wp) :: dispthr, cnthr, repthr, hbthr1, hbthr2
@@ -269,53 +266,29 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
    endif
 
    if (pr) call timer%measure(1,'distance/D3 list')
-
-   allocate(d3count(n), source=0)
-
    nd3=0
-   !$omp parallel do default(none) schedule(dynamic) shared(n,xyz,sqrab,srab,dispthr,d3count) &
-   !$omp private(i,j,k,ij)
    do i=1,n
       ij = i*(i-1)/2
-      sqrab(ij + i) = 0.0d0
-      srab(ij + i) = 0.0d0
-      do j=1,i-1
+      do j=1,i
+         if (j.eq.i) cycle ! dont calc distance to self for non-periodic distances (below)
          k = ij+j
          sqrab(k)=(xyz(1,i)-xyz(1,j))**2+&
          &  (xyz(2,i)-xyz(2,j))**2+&
          &  (xyz(3,i)-xyz(3,j))**2
-         if(sqrab(k).lt.dispthr) d3count(i)=d3count(i)+1
+         if(sqrab(k).lt.dispthr)then
+               nd3=nd3+1
+               d3list(1,nd3)=i
+               d3list(2,nd3)=j
+         endif
          srab (k)=sqrt(sqrab(k))
       enddo
-   enddo
-   !$omp end parallel do
 
-   do i=2,n
-      d3count(i)=d3count(i)+d3count(i-1)
+      ! The loop above only runs over the off diagonal elements !
+      ! This initializes the unitialized diagonal to zero but does not !
+      ! add it to the dispersion list. !
+      sqrab(ij + i) = 0.0d0
+      srab(ij + i) = 0.0d0
    enddo
-   nd3 = d3count(n)
-
-   !$omp parallel do default(none) schedule(dynamic) shared(n,sqrab,d3list,dispthr,d3count) &
-   !$omp private(i,j,k,ij,d3idx)
-   do i=1,n
-      ij = i*(i-1)/2
-      if (i.eq.1) then
-         d3idx = 0
-      else
-         d3idx = d3count(i-1)
-      endif
-      do j=1,i-1
-         k = ij+j
-         if(sqrab(k).lt.dispthr)then
-               d3idx=d3idx+1
-               d3list(1,d3idx)=i
-               d3list(2,d3idx)=j
-         endif
-      enddo
-   enddo
-   !$omp end parallel do
-
-   deallocate(d3count)
    if (mol%npbc.ne.0) then
    dist = 0.0_wp
    !$omp parallel do collapse(2) default(none) shared(dist,mol) &
@@ -3544,7 +3517,6 @@ subroutine gfnff_dlogcoord(n,at,xyz,rab,logCN,dlogCN,thr2,param)
    real(wp) :: dlogdcni
    real(wp) :: dlogdcnj
    real(wp) :: derivative
-   real(wp), allocatable :: diag_local(:,:)
    
    !> local parameter
    real(wp),parameter :: kn = -7.5_wp
@@ -3561,8 +3533,6 @@ subroutine gfnff_dlogcoord(n,at,xyz,rab,logCN,dlogCN,thr2,param)
    thr = sqrt(thr2)
    
    ! create error function CN !
-   !$omp parallel do default(none) schedule(dynamic) shared(n,rab,at,param,thr) reduction(+:cn) &
-   !$omp private(i,j,ij,ii,r,r0,dr,erfCN)
    do i = 2, n
       ii=i*(i-1)/2
       do j = 1, i-1
@@ -3578,53 +3548,36 @@ subroutine gfnff_dlogcoord(n,at,xyz,rab,logCN,dlogCN,thr2,param)
          cn(j) = cn(j) + erfCN
       enddo
    enddo
-   !$omp end parallel do
    
    ! create cutted logarithm CN + derivatives !
-   !$omp parallel default(none) shared(n,at,xyz,rab,cn,param,thr,logCN,dlogCN) &
-   !$omp private(i,j,ij,ii,r,r0,rij,dlogdcni,dlogdcnj,derivative,diag_local)
-      allocate(diag_local(3,n))
-      diag_local = 0.0_wp
-
-      !$omp do schedule(dynamic)
-      do i = 1, n
-         ii=i*(i-1)/2
-         logCN(i) = create_logCN(cn(i),param)
+   do i = 1, n
+      ii=i*(i-1)/2
+      logCN(i) = create_logCN(cn(i),param)
+      
+      ! get dlogCN/dCNi !
+      dlogdcni = create_dlogCN(cn(i),param)
+      do j = 1, i-1
+         ij = ii+j
          
-         ! get dlogCN/dCNi !
-         dlogdcni = create_dlogCN(cn(i),param)
-         do j = 1, i-1
-            ij = ii+j
-            
-            ! get dlogCN/dCNj !
-            dlogdcnj = create_dlogCN(cn(j),param)
-            r = rab(ij)
-            if (r.gt.thr) cycle
-            r0 = (param%rcov(at(i)) + param%rcov(at(j)))
-            
-            ! get derfCN/dRij !
-            derivative = create_derfCN(kn,r,r0)
-            
-            ! derivative = create_dexpCN(16.0d0,r,r0) !
-            rij  = derivative*(xyz(:,j) - xyz(:,i))/r
-            
-            ! project rij gradient onto cartesians !
-            dlogCN(:,i,j) = -dlogdcnj*rij
-            dlogCN(:,j,i) =  dlogdcni*rij
-            diag_local(:,j)= diag_local(:,j) + dlogdcnj*rij
-            diag_local(:,i)= diag_local(:,i) - dlogdcni*rij
-         enddo
+         ! get dlogCN/dCNj !
+         dlogdcnj = create_dlogCN(cn(j),param)
+         r = rab(ij)
+         if (r.gt.thr) cycle
+         r0 = (param%rcov(at(i)) + param%rcov(at(j)))
+         
+         ! get derfCN/dRij !
+         derivative = create_derfCN(kn,r,r0)
+         
+         ! derivative = create_dexpCN(16.0d0,r,r0) !
+         rij  = derivative*(xyz(:,j) - xyz(:,i))/r
+         
+         ! project rij gradient onto cartesians !
+         dlogCN(:,j,j)= dlogdcnj*rij + dlogCN(:,j,j)
+         dlogCN(:,i,j)=-dlogdcnj*rij
+         dlogCN(:,j,i)= dlogdcni*rij
+         dlogCN(:,i,i)=-dlogdcni*rij + dlogCN(:,i,i)
       enddo
-      !$omp end do
-
-      !$omp critical
-      do i=1,n
-         dlogCN(:,i,i) = dlogCN(:,i,i) + diag_local(:,i)
-      enddo
-      !$omp end critical
-
-      deallocate(diag_local)
-   !$omp end parallel
+   enddo
 
 contains
 
