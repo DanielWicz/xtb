@@ -254,6 +254,48 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
    &         eeqtmp(2,n*(n+1)/2),d3list(2,n*(n+1)/2),dcn(3,n,n),cn(n), &
    &         dcndr(3,n,n), dcndL(3,3,n), hb_dcn(3,n,n),hb_cn(n),dhbcndL(3,3,n))
 
+   !$omp parallel default(none) shared(n,g,qtmp,cn,hb_cn,dcn,dcndr,hb_dcn,dcndL,dhbcndL,sqrab,srab,sigma)
+   !$omp do schedule(static)
+   do i=1,n
+      qtmp(i)=0.0_wp
+      cn(i)=0.0_wp
+      hb_cn(i)=0.0_wp
+      g(:,i)=0.0_wp
+   end do
+   !$omp end do
+
+   !$omp do collapse(2) schedule(static)
+   do i=1,3
+      do j=1,3
+         sigma(i,j)=0.0_wp
+      end do
+   end do
+   !$omp end do
+
+   !$omp do collapse(3) schedule(static)
+   do i=1,3
+      do j=1,n
+         do k=1,n
+            dcn(i,j,k)=0.0_wp
+            dcndr(i,j,k)=0.0_wp
+            hb_dcn(i,j,k)=0.0_wp
+         end do
+      end do
+   end do
+   !$omp end do
+
+   !$omp do collapse(2) schedule(static)
+   do i=1,3
+      do j=1,3
+         do k=1,n
+            dcndL(i,j,k)=0.0_wp
+            dhbcndL(i,j,k)=0.0_wp
+         end do
+      end do
+   end do
+   !$omp end do
+   !$omp end parallel
+
    if (pr) then   
    
       call timer%new(10 + count([allocated(solvation)]),.false.)
