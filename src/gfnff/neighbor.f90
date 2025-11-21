@@ -2,7 +2,7 @@ module xtb_gfnff_neighbor
   use xtb_type_latticepoint, only : TLatticePoint, init_ => init_l 
   use xtb_type_molecule, only : TMolecule
   use xtb_gfnff_data, only : TGFFData
-  use xtb_mctc_accuracy, only : wp
+  use xtb_mctc_accuracy, only : wp, sp
   use xtb_type_environment, only : TEnvironment
   use xtb_mctc_sort
 
@@ -114,22 +114,26 @@ contains
       integer, intent(in) :: icase
       !integer, intent(inout) :: nbf(20,mol%n)
       type(TGFFData), intent(in) :: param
-      !real(wp) :: latThresh, maxNBr
-      real(wp), allocatable :: dist(:,:,:)
+      real(sp), allocatable :: dist2(:,:,:)
       integer :: i,j,iTr
+      real(wp) :: dx,dy,dz
       
-      allocate(dist(mol%n,mol%n,self%numctr), source=0.0_wp)
-      !$omp parallel do collapse(3) default(none) shared(dist,mol,self) &
-      !$omp private(iTr,i,j)
+      ! store squared distances in single precision to cut memory traffic and avoid expensive SQRT
+      allocate(dist2(mol%n,mol%n,self%numctr), source=0.0_sp)
+      !$omp parallel do collapse(3) default(none) shared(dist2,mol,self) &
+      !$omp private(iTr,i,j,dx,dy,dz)
       do iTr=1, self%numctr
        do i=1, mol%n
          do j=1, mol%n
-           dist(j,i,iTr) = NORM2(mol%xyz(:,i)-(mol%xyz(:,j)+self%transVec(:,iTr)))
+           dx = mol%xyz(1,i) - (mol%xyz(1,j)+self%transVec(1,iTr))
+           dy = mol%xyz(2,i) - (mol%xyz(2,j)+self%transVec(2,iTr))
+           dz = mol%xyz(3,i) - (mol%xyz(3,j)+self%transVec(3,iTr))
+           dist2(j,i,iTr) = real(dx*dx + dy*dy + dz*dz, kind=sp)
          enddo
        enddo
       enddo
       !$omp end parallel do
-      call fillnb(self,mol%n,mol%at,rtmp,dist,mchar,icase,f_in,f2_in,param)
+      call fillnb(self,mol%n,mol%at,rtmp,dist2,mchar,icase,f_in,f2_in,param)
 
     end subroutine get_nb
 
@@ -407,11 +411,12 @@ contains
       type(TNeigh), intent(inout) :: self
       integer, intent(in) :: n,at(n)
       real(wp), intent(in) :: rad(n*(n+1)/2)
-      real(wp), intent(in) :: dist(n,n,self%numctr)
+      real(sp), intent(in) :: dist(n,n,self%numctr)
       real(wp), intent(in) :: mchar(n),f,f2
       integer i,j,k,iTr,nn,icase,hc_crit,nnfi,nnfj,lin
       integer, allocatable :: tag(:,:,:)
       real(wp) rco,fm
+      real(sp) :: d2, thr2
       allocate(tag(n,n,self%numctr), source=0)
       if(icase.eq.1) then
         if(.not. allocated(self%nbf)) then
@@ -438,9 +443,9 @@ contains
       do iTr=1, self%numctr
         do i=1,n
           do j=1,n
-        
             k=lin(j,i)
-            if (dist(j,i,iTr).le.0.0_wp) cycle
+            d2=dist(j,i,iTr)
+            if (d2<=0.0_sp) cycle
             fm=1.0d0
 !           full case                                                           
             if(icase.eq.1)then
@@ -475,8 +480,10 @@ contains
             endif
 
             rco=rad(k)
+            ! small safety factor keeps borderline neighbours when using single precision
+            thr2 = (real(fm,sp)*real(f,sp)*real(rco,sp))**2 * (1.0_sp + 5.0e-4_sp)
 
-            if(dist(j,i,iTr).lt. fm * f * rco) tag(j,i,iTr)=1
+            if(d2 < thr2) tag(j,i,iTr)=1
           enddo
         enddo
       enddo
@@ -682,4 +689,3 @@ contains
 
 
 end module xtb_gfnff_neighbor
-
