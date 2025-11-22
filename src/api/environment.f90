@@ -46,7 +46,9 @@ contains
 !> Create new xtb calculation environment object
 function newEnvironment_api() result(venv) &
       & bind(C, name="xtb_newEnvironment")
-   !DEC$ ATTRIBUTES DLLEXPORT :: newEnvironment_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: newEnvironment_api
+!DEC$ ENDIF
    type(VEnvironment), pointer :: env
    type(c_ptr) :: venv
 
@@ -63,7 +65,9 @@ end function newEnvironment_api
 !> Delete a xtb calculation environment object
 subroutine delEnvironment_api(venv) &
       & bind(C, name="xtb_delEnvironment")
-   !DEC$ ATTRIBUTES DLLEXPORT :: delEnvironment_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: delEnvironment_api
+!DEC$ ENDIF
    type(c_ptr), intent(inout) :: venv
    type(VEnvironment), pointer :: env
 
@@ -85,7 +89,9 @@ end subroutine delEnvironment_api
 !> Check current status of calculation environment
 function checkEnvironment_api(venv) result(status) &
       & bind(C, name="xtb_checkEnvironment")
-   !DEC$ ATTRIBUTES DLLEXPORT :: checkEnvironment_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: checkEnvironment_api
+!DEC$ ENDIF
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
    integer(c_int) :: status
@@ -109,7 +115,9 @@ end function checkEnvironment_api
 !> Show and empty error stack
 subroutine showEnvironment_api(venv, charptr) &
       & bind(C, name="xtb_showEnvironment")
-   !DEC$ ATTRIBUTES DLLEXPORT :: showEnvironment_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: showEnvironment_api
+!DEC$ ENDIF
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
    character(kind=c_char), intent(in), optional :: charptr(*)
@@ -134,7 +142,9 @@ end subroutine showEnvironment_api
 !> Bind output from this environment
 subroutine setOutput_api(venv, charptr) &
       & bind(C, name="xtb_setOutput")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setOutput_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setOutput_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setOutput'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -169,7 +179,9 @@ end subroutine setOutput_api
 !> Release output unit from this environment
 subroutine releaseOutput_api(venv) &
       & bind(C, name="xtb_releaseOutput")
-   !DEC$ ATTRIBUTES DLLEXPORT :: releaseOutput_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: releaseOutput_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_releaseOutput'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -194,7 +206,9 @@ end subroutine releaseOutput_api
 !> Set verbosity of calculation output
 subroutine setVerbosity_api(venv, verbosity) &
       & bind(C, name="xtb_setVerbosity")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setVerbosity_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setVerbosity_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setVerbosity'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -217,7 +231,9 @@ end subroutine setVerbosity_api
 !> Set verbosity of calculation output
 subroutine getError_api(venv, charptr, buffersize) &
       & bind(C, name="xtb_getError")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setVerbosity_api, getError_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setVerbosity_api, getError_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_getError'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env

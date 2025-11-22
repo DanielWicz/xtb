@@ -57,7 +57,9 @@ contains
 
 function newCalculator_api() result(vcalc) &
       & bind(C, name="xtb_newCalculator")
-   !DEC$ ATTRIBUTES DLLEXPORT :: newCalculator_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: newCalculator_api
+!DEC$ ENDIF
    type(VCalculator), pointer :: calc
    type(c_ptr) :: vcalc
 
@@ -71,7 +73,9 @@ end function newCalculator_api
 
 subroutine delCalculator_api(vcalc) &
       & bind(C, name="xtb_delCalculator")
-   !DEC$ ATTRIBUTES DLLEXPORT :: delCalculator_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: delCalculator_api
+!DEC$ ENDIF
    type(c_ptr), intent(inout) :: vcalc
    type(VCalculator), pointer :: calc
 
@@ -91,7 +95,9 @@ end subroutine delCalculator_api
 
 subroutine loadGFNFF_api(venv, vmol, vcalc, charptr) &
       & bind(C, name="xtb_loadGFNFF")
-   !DEC$ ATTRIBUTES DLLEXPORT :: loadGFNFF_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: loadGFNFF_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_loadGFNFF'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -154,7 +160,9 @@ end subroutine loadGFNFF_api
 
 subroutine loadGFN0xTB_api(venv, vmol, vcalc, charptr) &
       & bind(C, name="xtb_loadGFN0xTB")
-   !DEC$ ATTRIBUTES DLLEXPORT :: loadGFN0xTB_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: loadGFN0xTB_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_loadGFN0xTB'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -217,7 +225,9 @@ end subroutine loadGFN0xTB_api
 
 subroutine loadGFN1xTB_api(venv, vmol, vcalc, charptr) &
       & bind(C, name="xtb_loadGFN1xTB")
-   !DEC$ ATTRIBUTES DLLEXPORT :: loadGFN1xTB_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: loadGFN1xTB_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_loadGFN1xTB'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -280,7 +290,9 @@ end subroutine loadGFN1xTB_api
 
 subroutine loadGFN2xTB_api(venv, vmol, vcalc, charptr) &
       & bind(C, name="xtb_loadGFN2xTB")
-   !DEC$ ATTRIBUTES DLLEXPORT :: loadGFN2xTB_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: loadGFN2xTB_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_loadGFN2xTB'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -344,7 +356,9 @@ end subroutine loadGFN2xTB_api
 !> Add a solvation model to calculator (requires loaded parametrisation)
 subroutine setSolvent_api(venv, vcalc, charptr, state, temperature, grid, charptr2) &
       & bind(C, name="xtb_setSolvent")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setSolvent_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setSolvent_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setSolvent'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -453,7 +467,9 @@ end subroutine setSolvent_api
 !> Unset the solvation model
 subroutine releaseSolvent_api(venv, vcalc) &
       & bind(C, name="xtb_releaseSolvent")
-   !DEC$ ATTRIBUTES DLLEXPORT :: releaseSolvent_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: releaseSolvent_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setRelease'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -485,7 +501,9 @@ end subroutine releaseSolvent_api
 !> Add a external charge potential to calculator (only supported in GFN1/2-xTB)
 subroutine setExternalCharges_api(venv, vcalc, npc, numbers, charges, positions) &
       & bind(C, name="xtb_setExternalCharges")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setExternalCharges_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setExternalCharges_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setExternalCharges'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -548,7 +566,9 @@ end subroutine setExternalCharges_api
 !> Unset the external charge potential
 subroutine releaseExternalCharges_api(venv, vcalc) &
       & bind(C, name="xtb_releaseExternalCharges")
-   !DEC$ ATTRIBUTES DLLEXPORT :: releaseExternalCharges_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: releaseExternalCharges_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_releaseExternalCharges'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -581,7 +601,9 @@ end subroutine releaseExternalCharges_api
 
 subroutine setAccuracy_api(venv, vcalc, accuracy) &
       & bind(C, name="xtb_setAccuracy")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setAccuracy_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setAccuracy_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setAccuracy'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -624,7 +646,9 @@ end subroutine setAccuracy_api
 
 subroutine setMaxIter_api(venv, vcalc, maxiter) &
       & bind(C, name="xtb_setMaxIter")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setMaxIter_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setMaxIter_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setMaxIter'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -663,7 +687,9 @@ end subroutine setMaxIter_api
 
 subroutine setElectronicTemp_api(venv, vcalc, temperature) &
       & bind(C, name="xtb_setElectronicTemp")
-   !DEC$ ATTRIBUTES DLLEXPORT :: setElectronicTemp_api
+!DEC$ IF DEFINED (WIN32)
+!DEC$ ATTRIBUTES DLLEXPORT :: setElectronicTemp_api
+!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_setElectronicTemp'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
