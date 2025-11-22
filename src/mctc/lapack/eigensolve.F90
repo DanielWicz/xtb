@@ -20,8 +20,7 @@
 module xtb_mctc_lapack_eigensolve
    use xtb_mctc_accuracy, only : sp, dp
    use xtb_mctc_blas_level3, only : blas_trsm
-   use xtb_mctc_lapack_geneigval, only : lapack_sygv
-   use xtb_mctc_lapack_stdeigval, only : lapack_syevd
+   use xtb_mctc_lapack_stdeigval, only : lapack_syevd, lapack_syevr
    use xtb_mctc_lapack_gst, only : lapack_sygst
    use xtb_mctc_lapack_trf, only : mctc_potrf
    use xtb_type_environment, only : TEnvironment
@@ -66,7 +65,7 @@ contains
 
 
 subroutine initSEigenSolver(self, env, bmat)
-   character(len=*), parameter :: source = 'mctc_lapack_sygv'
+   character(len=*), parameter :: source = 'mctc_lapack_syevr'
    class(TEigenSolver), intent(out) :: self
    type(TEnvironment), intent(inout) :: env
    real(sp), intent(in) :: bmat(:, :)
@@ -74,7 +73,7 @@ subroutine initSEigenSolver(self, env, bmat)
    self%n = size(bmat, 1)
 
    allocate(self%swork(1 + 6*self%n + 2*self%n**2))
-   allocate(self%iwork(3 + 5*self%n))
+   allocate(self%iwork(max(10*self%n, 3 + 5*self%n)))
 
    self%sbmat = bmat
    ! Check for Cholesky factorisation
@@ -84,7 +83,7 @@ end subroutine initSEigenSolver
 
 
 subroutine initDEigenSolver(self, env, bmat)
-   character(len=*), parameter :: source = 'mctc_lapack_sygv'
+   character(len=*), parameter :: source = 'mctc_lapack_syevr'
    class(TEigenSolver), intent(out) :: self
    type(TEnvironment), intent(inout) :: env
    real(dp), intent(in) :: bmat(:, :)
@@ -109,7 +108,7 @@ subroutine initDEigenSolver(self, env, bmat)
    allocate(self%dwork(lwork))
 #else
    allocate(self%dwork(1 + 6*self%n + 2*self%n**2))
-   allocate(self%iwork(3 + 5*self%n))
+   allocate(self%iwork(max(10*self%n, 3 + 5*self%n)))
 #endif
 
    self%dbmat = bmat
@@ -120,35 +119,72 @@ end subroutine initDEigenSolver
 
 
 subroutine mctc_ssygvd(self, env, amat, bmat, eval)
-   character(len=*), parameter :: source = 'mctc_lapack_sygv'
+   character(len=*), parameter :: source = 'mctc_lapack_syevr'
    class(TEigenSolver), intent(inout) :: self
    type(TEnvironment), intent(inout) :: env
    real(sp), intent(inout) :: amat(:, :)
    real(sp), intent(in) :: bmat(:, :)
    real(sp), intent(out) :: eval(:)
-   integer :: info, lswork
+   integer :: info, lswork, liwork, m
+   integer, allocatable :: isuppz(:)
+   real(sp), allocatable :: z(:, :)
+   real(sp) :: workq(1)
+   integer :: iworkq(1)
 
    self%sbmat(:, :) = bmat
+   call mctc_potrf(env, self%sbmat)
+   call lapack_sygst(1, 'u', self%n, amat, self%n, self%sbmat, self%n, info)
+   if (info /= 0) then
+      call env%error("Failed to reduce eigenvalue problem", source)
+      return
+   end if
 
-   lswork = size(self%swork)
-   call lapack_sygv(1, 'v', 'u', self%n, amat, self%n, self%sbmat, self%n, eval, &
-      & self%swork, lswork, info)
+   allocate(isuppz(2*self%n))
+   allocate(z(self%n, self%n))
+
+   call lapack_syevr('v', 'a', 'u', self%n, amat, self%n, 0.0_sp, 0.0_sp, 0, 0, 0.0_sp, &
+      & m, eval, z, self%n, isuppz, workq, -1, iworkq, -1, info)
+   lswork = max(1, int(workq(1)))
+   liwork = max(1, iworkq(1))
+
+   if (size(self%swork) < lswork) then
+      deallocate(self%swork)
+      allocate(self%swork(lswork))
+   end if
+   if (size(self%iwork) < liwork) then
+      deallocate(self%iwork)
+      allocate(self%iwork(liwork))
+   end if
+
+   call lapack_syevr('v', 'a', 'u', self%n, amat, self%n, 0.0_sp, 0.0_sp, 0, 0, 0.0_sp, &
+      & m, eval, z, self%n, isuppz, self%swork, lswork, self%iwork, liwork, info)
 
    if (info /= 0) then
       call env%error("Failed to solve eigenvalue problem", source)
+      deallocate(isuppz, z)
+      return
    end if
+
+   amat = z
+   call blas_trsm('l', 'u', 'n', 'n', self%n, self%n, 1.0_sp, self%sbmat, self%n, amat, self%n)
+
+   deallocate(isuppz, z)
 
 end subroutine mctc_ssygvd
 
 
 subroutine mctc_dsygvd(self, env, amat, bmat, eval)
-   character(len=*), parameter :: source = 'mctc_lapack_sygv'
+   character(len=*), parameter :: source = 'mctc_lapack_syevr'
    class(TEigenSolver), intent(inout) :: self
    type(TEnvironment), intent(inout) :: env
    real(dp), intent(inout) :: amat(:, :)
    real(dp), intent(in) :: bmat(:, :)
    real(dp), intent(out) :: eval(:)
-   integer :: info, ldwork
+   integer :: info, ldwork, liwork, m
+   integer, allocatable :: isuppz(:)
+   real(dp), allocatable :: z(:, :)
+   real(dp) :: workq(1)
+   integer :: iworkq(1)
 #ifdef USE_CUSOLVER
    integer :: istat
 #endif
@@ -170,9 +206,44 @@ subroutine mctc_dsygvd(self, env, amat, bmat, eval)
       call env%error("cuSovlerDnDsygvd failed", source)
    end if
 #else
-   ldwork = size(self%dwork)
-   call lapack_sygv(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, &
-      & self%dwork, ldwork, info)
+   call mctc_potrf(env, self%dbmat)
+   call lapack_sygst(1, 'u', self%n, amat, self%n, self%dbmat, self%n, info)
+   if (info /= 0) then
+      call env%error("Failed to reduce eigenvalue problem", source)
+      return
+   end if
+
+   allocate(isuppz(2*self%n))
+   allocate(z(self%n, self%n))
+
+   call lapack_syevr('v', 'a', 'u', self%n, amat, self%n, 0.0_dp, 0.0_dp, 0, 0, 0.0_dp, &
+      & m, eval, z, self%n, isuppz, workq, -1, iworkq, -1, info)
+
+   ldwork = max(1, int(workq(1)))
+   liwork = max(1, iworkq(1))
+
+   if (size(self%dwork) < ldwork) then
+      deallocate(self%dwork)
+      allocate(self%dwork(ldwork))
+   end if
+   if (size(self%iwork) < liwork) then
+      deallocate(self%iwork)
+      allocate(self%iwork(liwork))
+   end if
+
+   call lapack_syevr('v', 'a', 'u', self%n, amat, self%n, 0.0_dp, 0.0_dp, 0, 0, 0.0_dp, &
+      & m, eval, z, self%n, isuppz, self%dwork, ldwork, self%iwork, liwork, info)
+
+   if (info /= 0) then
+      call env%error("Failed to solve eigenvalue problem", source)
+      deallocate(isuppz, z)
+      return
+   end if
+
+   amat = z
+   call blas_trsm('l', 'u', 'n', 'n', self%n, self%n, 1.0_dp, self%dbmat, self%n, amat, self%n)
+
+   deallocate(isuppz, z)
 #endif
 
    if (info /= 0) then

@@ -19,8 +19,8 @@
 module xtb_scc_core
    use xtb_mctc_accuracy, only : wp
    use xtb_mctc_la, only : contract
-   use xtb_mctc_lapack, only : lapack_sygv
-   use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
+   use xtb_mctc_lapack, only : lapack_sygst, lapack_potrf, lapack_syevr
+   use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm, blas_trsm
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver
    use xtb_type_environment, only : TEnvironment
    use xtb_type_solvation, only : TSolvation
@@ -816,7 +816,8 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    real(wp),intent(in)   :: acc
    logical, intent(out)  :: fail
 
-   integer i,j,info,lwork,nfound,iu,nbf
+   integer i,j,info,lwork,liwork,nfound,iu,nbf,m
+   integer, allocatable :: iwork(:), isuppz(:)
    real(wp) w0,w1,t0,t1
 
    real(sp),allocatable :: H4(:,:)
@@ -840,20 +841,36 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
 !     if(ndim.gt.0)then
 !     USE DIAG IN NON-ORTHORGONAL BASIS
       allocate (aux4(1))
+      allocate (iwork(1), isuppz(2*ndim))
       P4 = s4
-      call lapack_sygv(1,'v','u',ndim,h4,ndim,p4,ndim,e4,aux4, &!workspace query
-     &           -1,info)
+      call lapack_potrf('u', ndim, p4, ndim, info)
+      if (info /= 0) then
+         fail = .true.
+         deallocate(aux4, iwork, isuppz)
+         return
+      end if
+      call lapack_sygst(1, 'u', ndim, h4, ndim, p4, ndim, info)
+      if (info /= 0) then
+         fail = .true.
+         deallocate(aux4, iwork, isuppz)
+         return
+      end if
+      call lapack_syevr('v','a','u',ndim,h4,ndim,0.0_sp,0.0_sp,0,0,0.0_sp, &
+     &           m,e4,x4,ndim,isuppz,aux4,-1,iwork,-1,info)
       lwork=max(1,int(aux4(1)))
-      deallocate(aux4)
-      allocate (aux4(lwork))              !do it
-      call lapack_sygv(1,'v','u',ndim,h4,ndim,p4,ndim,e4,aux4, &
-     &           lwork,info)
+      liwork=max(1,iwork(1))
+      deallocate(aux4,iwork)
+      allocate (aux4(lwork), iwork(liwork))
+      call lapack_syevr('v','a','u',ndim,h4,ndim,0.0_sp,0.0_sp,0,0,0.0_sp, &
+     &           m,e4,x4,ndim,isuppz,aux4,lwork,iwork,liwork,info)
       if(info.ne.0) then
          fail=.true.
+         deallocate(aux4,iwork,isuppz)
          return
       endif
-      X4 = H4 ! save
-      deallocate(aux4)
+      call blas_trsm('l','u','n','n',ndim,ndim,1.0_sp,p4,ndim,x4,ndim)
+      H4 = X4 ! save
+      deallocate(aux4,iwork,isuppz)
 
 !     else
 !        USE DIAG IN ORTHOGONAL BASIS WITH X=S^-1/2 TRAFO
@@ -914,9 +931,10 @@ subroutine solve(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    real(wp),intent(in)   :: acc
    logical, intent(out)  :: fail
 
-   integer i,j,info,lwork,nfound,iu,nbf
-   real(wp),allocatable :: aux  (:)
+   integer i,j,info,lwork,liwork,nfound,iu,nbf,m
+   integer, allocatable :: iwork(:), isuppz(:)
    real(wp) w0,w1,t0,t1
+   real(wp), allocatable :: work(:)
 
    fail =.false.
 
@@ -925,22 +943,38 @@ subroutine solve(full,ndim,ihomo,acc,H,S,X,P,e,fail)
 !                                                     call timing(t0,w0)
 !     if(ndim.gt.0)then
 !     USE DIAG IN NON-ORTHORGONAL BASIS
-      allocate (aux(1))
+      allocate (work(1))
+      allocate (iwork(1), isuppz(2*ndim))
       P = s
-      call lapack_sygv(1,'v','u',ndim,h,ndim,p,ndim,e,aux, &!workspace query
-     &           -1,info)
-      lwork=max(1,int(aux(1)))
-      deallocate(aux)
-      allocate (aux(lwork))              !do it
-      call lapack_sygv(1,'v','u',ndim,h,ndim,p,ndim,e,aux, &
-     &           lwork,info)
-      !write(*,*)'SYGVD INFO', info
+      call lapack_potrf('u', ndim, p, ndim, info)
+      if (info /= 0) then
+         fail = .true.
+         deallocate(work, iwork, isuppz)
+         return
+      end if
+      call lapack_sygst(1, 'u', ndim, h, ndim, p, ndim, info)
+      if (info /= 0) then
+         fail = .true.
+         deallocate(work, iwork, isuppz)
+         return
+      end if
+      call lapack_syevr('v','a','u',ndim,h,ndim,0.0_wp,0.0_wp,0,0,0.0_wp, &
+     &           m,e,x,ndim,isuppz,work,-1,iwork,-1,info)
+      lwork=max(1,int(work(1)))
+      liwork=max(1,iwork(1))
+      deallocate(work,iwork)
+      allocate (work(lwork), iwork(liwork))              !do it
+      call lapack_syevr('v','a','u',ndim,h,ndim,0.0_wp,0.0_wp,0,0,0.0_wp, &
+     &           m,e,x,ndim,isuppz,work,lwork,iwork,liwork,info)
       if(info.ne.0) then
          fail=.true.
+         deallocate(work,iwork,isuppz)
          return
       endif
-      X = H ! save
-      deallocate(aux)
+      call blas_trsm('l','u','n','n',ndim,ndim,1.0_wp,p,ndim,x,ndim)
+      H = X
+      deallocate(work,iwork,isuppz)
+      !write(*,*)'SYGVR INFO', info
 
 !     else
 !        USE DIAG IN ORTHOGONAL BASIS WITH X=S^-1/2 TRAFO
