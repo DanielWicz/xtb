@@ -24,7 +24,7 @@ module xtb_mctc_lapack_feast
    implicit none
    private
 
-   public :: feast_available, feast_syevd_dp
+   public :: feast_available, feast_syevd_dp, feast_sygvd_dp
 
    logical, parameter :: feast_available = &
 #ifdef WITH_MKL
@@ -89,6 +89,65 @@ contains
       info = -1
 #endif
    end subroutine feast_syevd_dp
+
+
+   subroutine feast_sygvd_dp(itype, jobz, uplo, n, a, lda, b, ldb, w, info)
+      !! Generalised symmetric-definite eigenproblem using FEAST. Mirrors DSYGVD
+      !! semantics: on success, eigenvalues in w and eigenvectors in a.
+      integer,          intent(in)    :: itype
+      character(len=1), intent(in)    :: jobz
+      character(len=1), intent(in)    :: uplo
+      integer,          intent(in)    :: n
+      integer,          intent(in)    :: lda, ldb
+      real(dp),         intent(inout) :: a(lda, *)
+      real(dp),         intent(inout) :: b(ldb, *)
+      real(dp),         intent(out)   :: w(*)
+      integer,          intent(out)   :: info
+
+#ifdef WITH_MKL
+      integer :: fpm(128)
+      integer :: loop, m0, m_found
+      real(dp) :: epsout
+      real(dp) :: emin, emax
+      real(dp), allocatable :: x(:, :)
+      real(dp), allocatable :: res(:)
+      logical :: need_vec
+
+      info = 0
+
+      call feastinit(fpm)
+      fpm(1) = 0
+      fpm(2) = 12
+      fpm(3) = 12
+      fpm(4) = 8
+      fpm(5) = 1
+
+      call compute_bounds(n, a, lda, emin, emax)
+
+      m0 = n
+      allocate(x(n, m0))
+      x = a
+      allocate(res(m0))
+
+      call dfeast_sygv(uplo, n, a, lda, b, ldb, fpm, epsout, loop, emin, emax, m0, w, x, m_found, res, info, itype)
+
+      if (info == 0 .and. m_found == n) then
+         need_vec = (jobz == 'V' .or. jobz == 'v')
+         if (need_vec) then
+            a(:, 1:m0) = x(:, 1:m0)
+         end if
+      else
+         if (info == 0) info = -7777
+      end if
+
+      deallocate(res)
+      deallocate(x)
+#else
+      call touch_unused(jobz, uplo, n, lda, a, w)
+      info = -1
+#endif
+
+   end subroutine feast_sygvd_dp
 
 #ifdef WITH_MKL
    subroutine compute_bounds(n, a, lda, emin, emax)

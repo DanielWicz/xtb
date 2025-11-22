@@ -24,6 +24,7 @@ module xtb_mctc_lapack_eigensolve
    use xtb_mctc_lapack_stdeigval, only : lapack_syevd
    use xtb_mctc_lapack_gst, only : lapack_sygst
    use xtb_mctc_lapack_trf, only : mctc_potrf
+   use xtb_mctc_lapack_feast, only : feast_available, feast_sygvd_dp
    use xtb_type_environment, only : TEnvironment
 #ifdef USE_CUSOLVER
    use xtb_mctc_global
@@ -173,6 +174,12 @@ subroutine mctc_dsygvd(self, env, amat, bmat, eval)
 #else
    ldwork = size(self%dwork)
    liwork = size(self%iwork)
+
+   if (feast_available) then
+      call feast_sygvd_dp(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, info)
+      if (info == 0) return
+   end if
+
    call lapack_sygvd(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, &
       & self%dwork, ldwork, self%iwork, liwork, info)
 #endif
