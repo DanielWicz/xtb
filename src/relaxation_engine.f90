@@ -752,6 +752,7 @@ subroutine l_ancopt &
       &   (env,iter,thiscycle,opt,molopt, &
       &    chk,calc,energy,egap,gradient,sigma,nvar,hdiag,trafo,xyz0, &
       &    converged,fail,timer,avconv)
+   if (memlog) call log_memory_usage_delta(env%unit,'lbfgs return', last_rss)
 
    if (memlog) then
       write(mem_label,'("lbfgs micro ",i0," post")') micro_iter

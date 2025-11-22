@@ -1225,7 +1225,9 @@ subroutine modhes(env, calc, modh, natoms, xyz, chg, Hess, pr)
    use xtb_setparam
    use xtb_type_calculator
    use xtb_gfnff_calculator
-!
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta
+   use, intrinsic :: iso_fortran_env, only : int64
+   !
 !       generates a Lindh Model Hessian
 !       Chem. Phys. Let. 241(1995) 423-428
 !       with personal permission from R.L.
@@ -1253,9 +1255,14 @@ subroutine modhes(env, calc, modh, natoms, xyz, chg, Hess, pr)
    !> model hessian
    real(wp),intent(out) :: Hess((natoms*3)*((natoms*3)+1)/2)
    integer, intent(in)  :: chg(natoms)
+   logical :: memlog
+   integer(int64) :: last_rss
 
    ! initialize !
    Hess=0.0_wp
+   memlog = memlog_enabled()
+   last_rss = -1_int64
+   if (memlog) call log_memory_usage_delta(env%unit,'modhes entry', last_rss)
 
    select type(calc)
    class default ! all calculator cases except GFN-FF
@@ -1298,6 +1305,7 @@ subroutine modhes(env, calc, modh, natoms, xyz, chg, Hess, pr)
 
 !  constraints
    call constrhess(natoms,chg,xyz,Hess)
+   if (memlog) call log_memory_usage_delta(env%unit,'modhes exit', last_rss)
 
 end subroutine modhes
 
