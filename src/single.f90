@@ -31,6 +31,7 @@ module xtb_single
    use xtb_type_calculator
    use xtb_type_data
    use xtb_type_pcem
+   use xtb_blas_runtime, only : blas_flush_buffers
    implicit none
    public :: singlepoint
    private
@@ -60,6 +61,9 @@ subroutine singlepoint &
 
    ! Just forward the singlepoint implementation of the calculator
    call calc%singlepoint(env, mol, chk, prlevel, restart, etot, g, sigma, egap, res)
+
+   ! Return vendor BLAS pools and glibc arenas between geometry steps
+   call blas_flush_buffers()
 
 end subroutine singlepoint
 
