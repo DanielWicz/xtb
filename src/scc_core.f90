@@ -412,6 +412,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
    call mctc_potrf(env, S_factorized)
+   call mctc_free_buffers()
 
    converged = .false.
    lastdiag = .false.
@@ -867,6 +868,7 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
      &           lwork,iwork,liwork,info)
       if(info.ne.0) then
          fail=.true.
+         call mctc_free_buffers()
          return
       endif
       X4 = H4 ! save
@@ -912,6 +914,7 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    e = e4
 
    deallocate(e4,P4,X4,S4,H4)
+   call mctc_free_buffers()
 
 end subroutine solve4
 
@@ -956,6 +959,7 @@ subroutine solve(full,ndim,ihomo,acc,H,S,X,P,e,fail)
       !write(*,*)'SYGVD INFO', info
       if(info.ne.0) then
          fail=.true.
+         call mctc_free_buffers()
          return
       endif
       X = H ! save
@@ -994,6 +998,8 @@ subroutine solve(full,ndim,ihomo,acc,H,S,X,P,e,fail)
 !     save and output MO matrix in AO basis
       H = P
    endif
+
+   call mctc_free_buffers()
 
 end subroutine solve
 
