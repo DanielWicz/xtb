@@ -67,9 +67,15 @@ contains
 
 subroutine initSEigenSolver(self, env, bmat)
    character(len=*), parameter :: source = 'mctc_lapack_sygvd'
-   class(TEigenSolver), intent(out) :: self
+   class(TEigenSolver), intent(inout) :: self
    type(TEnvironment), intent(inout) :: env
    real(sp), intent(in) :: bmat(:, :)
+
+   if (allocated(self%iwork)) deallocate(self%iwork)
+   if (allocated(self%swork)) deallocate(self%swork)
+   if (allocated(self%sbmat)) deallocate(self%sbmat)
+   if (allocated(self%dwork)) deallocate(self%dwork)
+   if (allocated(self%dbmat)) deallocate(self%dbmat)
 
    self%n = size(bmat, 1)
 
@@ -85,7 +91,7 @@ end subroutine initSEigenSolver
 
 subroutine initDEigenSolver(self, env, bmat)
    character(len=*), parameter :: source = 'mctc_lapack_sygvd'
-   class(TEigenSolver), intent(out) :: self
+   class(TEigenSolver), intent(inout) :: self
    type(TEnvironment), intent(inout) :: env
    real(dp), intent(in) :: bmat(:, :)
 #ifdef USE_CUSOLVER
@@ -94,6 +100,12 @@ subroutine initDEigenSolver(self, env, bmat)
    ! for cuSolverDnDsygvd -- it is okay to pass an empty array to cuSolverDnDsygvd_bufferSize
    real(dp) :: dummy(:) 
 #endif
+
+   if (allocated(self%iwork)) deallocate(self%iwork)
+   if (allocated(self%swork)) deallocate(self%swork)
+   if (allocated(self%sbmat)) deallocate(self%sbmat)
+   if (allocated(self%dwork)) deallocate(self%dwork)
+   if (allocated(self%dbmat)) deallocate(self%dbmat)
 
    self%n = size(bmat, 1)
 
