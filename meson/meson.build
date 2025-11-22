@@ -136,6 +136,7 @@ if lapack_vendor == 'auto'
 endif
 
 if lapack_vendor == 'mkl'
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
   mkl_dep = []
   if fc_id == 'intel' or fc_id == 'intel-llvm'
     mkl_dep += cc.find_library('mkl_intel_lp64')
@@ -157,6 +158,7 @@ if lapack_vendor == 'mkl'
   lib_deps += mkl_dep
 
 elif lapack_vendor == 'mkl-rt'
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
   mkl_dep = fc.find_library('mkl_rt')
   lib_deps += mkl_dep
 

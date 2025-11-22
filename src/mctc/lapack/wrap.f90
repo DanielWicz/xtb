@@ -33,7 +33,16 @@ module xtb_mctc_lapack_wrap
    public :: mctc_getrs, mctc_sytrs, mctc_sptrs, mctc_potrs, mctc_pptrs
    public :: mctc_getrf, mctc_sytrf, mctc_sptrf, mctc_potrf, mctc_pptrf
    public :: mctc_getri, mctc_sytri, mctc_sptri, mctc_potri, mctc_pptri
+   public :: mctc_free_buffers, mctc_disable_fast_mm
 
+   interface
+#ifdef WITH_MKL
+      subroutine mkl_free_buffers() bind(c, name='mkl_free_buffers')
+      end subroutine mkl_free_buffers
+      subroutine mkl_disable_fast_mm() bind(c, name='mkl_disable_fast_mm')
+      end subroutine mkl_disable_fast_mm
+#endif
+   end interface
 
    interface mctc_getrs
       module procedure :: mctc_sgetrs1
@@ -304,6 +313,20 @@ subroutine mctc_dpptrs3(env, amat, bmat, uplo)
    bptr(1:size(bmat, 1), 1:size(bmat, 2)*size(bmat, 3)) => bmat
    call mctc_pptrs(env, amat, bptr, uplo)
 end subroutine mctc_dpptrs3
+
+
+subroutine mctc_free_buffers()
+#ifdef WITH_MKL
+   call mkl_free_buffers()
+#endif
+end subroutine mctc_free_buffers
+
+
+subroutine mctc_disable_fast_mm()
+#ifdef WITH_MKL
+   call mkl_disable_fast_mm()
+#endif
+end subroutine mctc_disable_fast_mm
 
 
 end module xtb_mctc_lapack_wrap

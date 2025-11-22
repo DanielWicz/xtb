@@ -74,6 +74,10 @@ endif()
 find_package("LAPACK" REQUIRED)
 find_package("BLAS" REQUIRED)
 
+if(BLAS_LIBRARIES MATCHES "mkl" OR BLAS_LIBRARIES MATCHES "MKL")
+  add_compile_definitions(WITH_MKL)
+endif()
+
 
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/include")
    file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")

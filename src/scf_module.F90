@@ -21,6 +21,7 @@ module xtb_scf
    use xtb_mctc_convert, only : autoev,evtoau
    use xtb_mctc_blas, only : mctc_gemv
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver, init
+   use xtb_mctc_lapack_wrap, only : mctc_free_buffers
    use xtb_coulomb_klopmanohno
    use xtb_disp_coordinationnumber, only : getCoordinationNumber, cnType
    use xtb_disp_dftd3, only : d3_gradient
@@ -302,6 +303,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
          call ies%free()
          call coulomb%free()
          call latp%free()
+         call mctc_free_buffers()
          call env%error("Solvation not available with PBC", source)
          return
       end if
@@ -512,6 +514,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
          call ies%free()
          call coulomb%free()
          call latp%free()
+         call mctc_free_buffers()
          call env%error("Halogen bond correction not available with PBC", source)
          return
       end if
@@ -578,6 +581,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
          call ies%free()
          call coulomb%free()
          call latp%free()
+         call mctc_free_buffers()
          call env%error("Multipoles not available with PBC", source)
          return
       end if
@@ -693,6 +697,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       call ies%free()
       call coulomb%free()
       call latp%free()
+      call mctc_free_buffers()
       call env%error("Self consistent charge iterator terminated", source)
       return
    end if
@@ -900,6 +905,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       call ies%free()
       call coulomb%free()
       call latp%free()
+      call mctc_free_buffers()
       call env%error("Self consistent charge iterator did not converge", source)
    end if
 
@@ -1053,6 +1059,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    call ies%free()
    call coulomb%free()
    call latp%free()
+   call mctc_free_buffers()
 
    if (profile) call timer%deallocate
 
