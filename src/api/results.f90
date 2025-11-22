@@ -52,8 +52,7 @@ contains
 !> Create new singlepoint results object
 function newResults_api() result(vres) &
       & bind(C, name="xtb_newResults")
-!DEC$ IF DEFINED (WIN32)
-!DEC$ ATTRIBUTES DLLEXPORT :: newResults_api
+   !DEC$ ATTRIBUTES DLLEXPORT :: newResults_api
    type(VResults), pointer :: res
    type(c_ptr) :: vres
 
@@ -471,8 +470,7 @@ end subroutine getOrbitalOccupations_api
 !> Query singlepoint results object for orbital coefficients
 subroutine getOrbitalCoefficients_api(venv, vres, dptr) &
       & bind(C, name="xtb_getOrbitalCoefficients")
-!DEC$ ATTRIBUTES DLLEXPORT :: getOrbitalCoefficients_api 
-!DEC$ ENDIF
+   !DEC$ ATTRIBUTES DLLEXPORT :: getOrbitalCoefficients_api 
    character(len=*), parameter :: source = "xtb_api_getOrbitalCoefficients"
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env

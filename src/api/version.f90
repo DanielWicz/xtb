@@ -33,9 +33,7 @@ contains
 
 function getAPIVersion_api() result(version) &
       & bind(C, name="xtb_getAPIVersion")
-!DEC$ IF DEFINED (WIN32)
    !DEC$ ATTRIBUTES DLLEXPORT :: getAPIVersion_api
-!DEC$ ENDIF
    integer(c_int) :: version
 
    version = 10000_c_int * apiMajor + 100_c_int * apiMinor + apiPatch

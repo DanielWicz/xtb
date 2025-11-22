@@ -45,9 +45,7 @@ contains
 function newMolecule_api(venv, natoms, numbers, positions, charge, uhf, lattice, &
       & periodic) result(vmol) &
       & bind(C, name="xtb_newMolecule")
-!DEC$ IF DEFINED (WIN32)
-!DEC$ ATTRIBUTES DLLEXPORT :: newMolecule_api
-!DEC$ ENDIF
+   !DEC$ ATTRIBUTES DLLEXPORT :: newMolecule_api
    character(len=*), parameter :: source = 'xtb_api_newMolecule'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -98,9 +96,7 @@ end function newMolecule_api
 
 subroutine delMolecule_api(vmol) &
       & bind(C, name="xtb_delMolecule")
-!DEC$ IF DEFINED (WIN32)
-!DEC$ ATTRIBUTES DLLEXPORT :: delMolecule_api
-!DEC$ ENDIF
+   !DEC$ ATTRIBUTES DLLEXPORT :: delMolecule_api
    type(c_ptr), intent(inout) :: vmol
    type(VMolecule), pointer :: mol
 
@@ -117,9 +113,7 @@ end subroutine delMolecule_api
 
 subroutine updateMolecule_api(venv, vmol, positions, lattice) &
       & bind(C, name="xtb_updateMolecule")
-!DEC$ IF DEFINED (WIN32)
-!DEC$ ATTRIBUTES DLLEXPORT :: updateMolecule_api
-!DEC$ ENDIF
+   !DEC$ ATTRIBUTES DLLEXPORT :: updateMolecule_api
    character(len=*), parameter :: source = 'xtb_api_updateMolecule'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env

@@ -40,9 +40,7 @@ contains
 
 subroutine singlepoint_api(venv, vmol, vcalc, vres) &
       & bind(C, name="xtb_singlepoint")
-!DEC$ IF DEFINED (WIN32)
    !DEC$ ATTRIBUTES DLLEXPORT :: singlepoint_api
-!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_singlepoint'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
@@ -163,9 +161,7 @@ end subroutine singlepoint_api
 
 subroutine cpcmx_calc_api(venv, vmol, vcalc, vres) &
       & bind(C, name="xtb_cpcmx_calc")
-!DEC$ IF DEFINED (WIN32)
    !DEC$ ATTRIBUTES DLLEXPORT :: cpcmx_calc_api
-!DEC$ ENDIF
    use xtb_solv_cpx, only: TCpcmx
    use xtb_type_calculator, only: TCalculator
 
@@ -320,9 +316,7 @@ end subroutine cpcmx_calc_api
 subroutine hessian_api(venv, vmol, vcalc, vres, c_hess, &
                      & c_step, c_list, c_dipgrad, c_polgrad) &
       & bind(C, name="xtb_hessian")
-!DEC$ IF DEFINED (WIN32)
    !DEC$ ATTRIBUTES DLLEXPORT :: hessian_api
-!DEC$ ENDIF
    character(len=*), parameter :: source = 'xtb_api_hessian'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
