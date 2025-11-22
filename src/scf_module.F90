@@ -78,6 +78,27 @@ module xtb_scf
 
 contains
 
+pure integer(int64) function kb_r1(a) result(kb)
+   real(wp), intent(in) :: a(:)
+   kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+end function kb_r1
+pure integer(int64) function kb_r2(a) result(kb)
+   real(wp), intent(in) :: a(:,:)
+   kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+end function kb_r2
+pure integer(int64) function kb_r3(a) result(kb)
+   real(wp), intent(in) :: a(:,:,:)
+   kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+end function kb_r3
+pure integer(int64) function kb_i1(a) result(kb)
+   integer, intent(in) :: a(:)
+   kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+end function kb_i1
+pure integer(int64) function kb_i2(a) result(kb)
+   integer, intent(in) :: a(:,:)
+   kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+end function kb_i2
+
 subroutine ensure_scf_workspace(nao)
    integer, intent(in) :: nao
 
@@ -85,6 +106,10 @@ subroutine ensure_scf_workspace(nao)
       if (allocated(dpint_ws)) deallocate(dpint_ws, qpint_ws)
       allocate(dpint_ws(3, nao, nao))
       allocate(qpint_ws(6, nao, nao))
+      if (memlog_enabled()) then
+         write(*,'(1x,"[mem]",1x,a,1x,i0," kB")') 'alloc dpint_ws', kb_r3(dpint_ws)
+         write(*,'(1x,"[mem]",1x,a,1x,i0," kB")') 'alloc qpint_ws', kb_r3(qpint_ws)
+      end if
    end if
 end subroutine ensure_scf_workspace
 
@@ -954,6 +979,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 
    if (profile.and.pr) call timer%write(env%unit,'SCC')
    if (memlog) call log_memory_usage_delta(env%unit, 'scf end', mem_last)
+   call log_scf_arrays('before cleanup')
 
 ! ========================================================================
    call cleanup_allocations()
@@ -965,6 +991,44 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    end if
 
 contains
+
+   subroutine log_size(label, kb)
+      character(len=*), intent(in) :: label
+      integer(int64), intent(in) :: kb
+      if (kb > 0) write(env%unit,'(1x,"[mem]",1x,a,1x,i0," kB")') trim(label), kb
+   end subroutine log_size
+
+   subroutine log_scf_arrays(stage)
+      character(len=*), intent(in) :: stage
+      if (.not.memlog) return
+      write(env%unit,'(1x,"[mem]",1x,a)') 'scf arrays '//trim(stage)
+      if (allocated(dpint_ws)) call log_size('dpint_ws', kb_r3(dpint_ws))
+      if (allocated(qpint_ws)) call log_size('qpint_ws', kb_r3(qpint_ws))
+      if (allocated(S))       call log_size('S',        kb_r2(S))
+      if (allocated(X))       call log_size('X',        kb_r2(X))
+      if (allocated(H0))      call log_size('H0',       kb_r1(H0))
+      if (allocated(H0_noovlp)) call log_size('H0_noovlp', kb_r1(H0_noovlp))
+      if (allocated(matlist)) call log_size('matlist',  kb_i2(matlist))
+      if (allocated(mdlst))   call log_size('mdlst',    kb_i2(mdlst))
+      if (allocated(mqlst))   call log_size('mqlst',    kb_i2(mqlst))
+      if (allocated(ves))     call log_size('ves',      kb_r1(ves))
+      if (allocated(vs))      call log_size('vs',       kb_r1(vs))
+      if (allocated(vd))      call log_size('vd',       kb_r2(vd))
+      if (allocated(vq))      call log_size('vq',       kb_r2(vq))
+      if (allocated(radcn))   call log_size('radcn',    kb_r1(radcn))
+      if (allocated(aes)) then
+         if (allocated(aes%gab3)) call log_size('aes%gab3', kb_r2(aes%gab3))
+         if (allocated(aes%gab5)) call log_size('aes%gab5', kb_r2(aes%gab5))
+      end if
+      if (allocated(scD4)) then
+         if (allocated(scD4%dispmat)) call log_size('scD4%dispmat', kb_r2(scD4%dispmat))
+         if (allocated(scD4%refC6))   call log_size('scD4%refC6',   kb_r2(scD4%refC6))
+         if (allocated(scD4%gweight)) call log_size('scD4%gweight', kb_r1(scD4%gweight))
+      end if
+      if (allocated(trans))          call log_size('trans',       kb_r2(trans))
+      if (allocated(latp%trans))     call log_size('latp%trans',  kb_i2(latp%trans))
+      if (allocated(latp%dist2))     call log_size('latp%dist2',  kb_r1(latp%dist2))
+   end subroutine log_scf_arrays
 
    subroutine cleanup_allocations()
       ! Explicitly release large temporaries to avoid heap growth across SCF calls
@@ -1018,6 +1082,7 @@ contains
       if (allocated(latp%trans))  deallocate(latp%trans)
       if (allocated(latp%dist2))  deallocate(latp%dist2)
       if (memlog) call log_memory_usage_delta(env%unit, 'scf cleanup', mem_last)
+      call log_scf_arrays('after cleanup')
       if (profile) call timer%deallocate
       call trim_memory()
    end subroutine cleanup_allocations

@@ -29,6 +29,8 @@ module xtb_scc_core
    use xtb_xtb_dispersion
    use xtb_xtb_multipole
    use xtb_broyden
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta
+   use, intrinsic :: iso_fortran_env, only : int64
    implicit none
    private
 
@@ -646,6 +648,24 @@ contains
    !> avoiding heap growth when the routine is called many times (e.g. during
    !> geometry optimisation micro cycles).
    subroutine cleanup_scc()
+      logical :: logmem
+
+      logmem = memlog_enabled()
+      if (logmem) then
+         if (allocated(S_factorized)) call log_size('S_factorized', kb_r2(S_factorized))
+         if (allocated(vs))           call log_size('vs',           kb_r1(vs))
+         if (allocated(vd))           call log_size('vd',           kb_r2(vd))
+         if (allocated(vq))           call log_size('vq',           kb_r2(vq))
+         if (allocated(df))           call log_size('df',           kb_r2(df))
+         if (allocated(u))            call log_size('u',            kb_r2(u))
+         if (allocated(a))            call log_size('a',            kb_r2(a))
+         if (allocated(dq))           call log_size('dq',           kb_r1(dq))
+         if (allocated(dqlast))       call log_size('dqlast',       kb_r1(dqlast))
+         if (allocated(qlast_in))     call log_size('qlast_in',     kb_r1(qlast_in))
+         if (allocated(omega))        call log_size('omega',        kb_r1(omega))
+         if (allocated(q_in))         call log_size('q_in',         kb_r1(q_in))
+         if (allocated(atomicShift))  call log_size('atomicShift',  kb_r1(atomicShift))
+      end if
 
       if (allocated(S_factorized)) deallocate(S_factorized)
       if (allocated(vs))           deallocate(vs)
@@ -662,6 +682,24 @@ contains
       if (allocated(atomicShift))  deallocate(atomicShift)
 
    end subroutine cleanup_scc
+
+   pure integer(int64) function kb_r1(a) result(kb)
+      real(wp), intent(in) :: a(:)
+      kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+   end function kb_r1
+   pure integer(int64) function kb_r2(a) result(kb)
+      real(wp), intent(in) :: a(:,:)
+      kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+   end function kb_r2
+   pure integer(int64) function kb_r1_int(a) result(kb)
+      integer, intent(in) :: a(:)
+      kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
+   end function kb_r1_int
+   subroutine log_size(label, kb)
+      character(len=*), intent(in) :: label
+      integer(int64), intent(in) :: kb
+      if (kb > 0) write(env%unit,'(1x,"[mem]",1x,a,1x,i0," kB")') trim(label), kb
+   end subroutine log_size
 
 end subroutine scc
 
