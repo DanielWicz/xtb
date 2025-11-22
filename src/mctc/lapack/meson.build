@@ -23,5 +23,5 @@ srcs += files(
    'trf.f90',
    'tri.f90',
    'trs.f90',
-   'wrap.f90',
+   'wrap.F90',
 )
