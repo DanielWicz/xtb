@@ -106,6 +106,7 @@ list(APPEND srcs
   "${dir}/makel.f90"
   "${dir}/matinv.f90"
   "${dir}/mdoptim.f90"
+  "${dir}/mkl_memory.F90"
   "${dir}/metadynamic.f90"
   "${dir}/modef.f90"
   "${dir}/model_hessian.f90"
