@@ -53,7 +53,7 @@ module xtb_scf
    use xtb_hlex
    use xtb_local
    use xtb_dipole
-   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta, trim_memory
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta, trim_memory, rss_kb
    use, intrinsic :: iso_fortran_env, only : int64
    implicit none
    private
@@ -249,6 +249,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 
 !  broyden stuff
    logical  :: broy
+   integer(int64) :: start_rss, end_rss
 
 ! ------------------------------------------------------------------------
 !  initialization
@@ -257,6 +258,8 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (profile) call timer%measure(1,"SCC setup")
    memlog = memlog_enabled()
    mem_last = -1_int64
+   start_rss = -1_int64
+   if (memlog) start_rss = rss_kb()
    if (memlog) call log_memory_usage_delta(env%unit, 'scf start', mem_last)
    rmsq  =1.e+42_wp
    lastdiag=.false.
@@ -954,6 +957,12 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 
 ! ========================================================================
    call cleanup_allocations()
+   if (memlog) then
+      end_rss = rss_kb()
+      if (end_rss > 0 .and. start_rss > 0) then
+         write(env%unit,'(1x,"[mem]",1x,a,1x,i0," kB")') 'scf retained', end_rss-start_rss
+      end if
+   end if
 
 contains
 
