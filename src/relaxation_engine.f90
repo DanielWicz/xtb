@@ -628,9 +628,11 @@ subroutine l_ancopt &
       write(mem_label,'("lbfgs micro ",i0," pre")') micro_iter
       call log_memory_usage_delta(env%unit, trim(mem_label), last_rss)
    end if
+   if (memlog) call log_memory_usage_delta(env%unit,'modhes start', last_rss)
    if (profile) call timer%measure(2,"model hessian")
    if (minpr) write(env%unit,'(" * calculating model hessian...")')
    call modhes(env,calc,set%mhset,molopt%n,molopt%xyz,molopt%at,hessp,pr)
+   if (memlog) call log_memory_usage_delta(env%unit,'modhes end', last_rss)
 
    ! Project translation, rotation and fixed atoms
     if(fixset%n.gt.0)then
@@ -1050,6 +1052,7 @@ subroutine lbfgs_relax &
    ! now get the memory for the LBFGS
    allocate( lbfgs_s(nvar,memory), lbfgs_y(nvar,memory), lbfgs_rho(memory), &
       &      source = 0.0_wp )
+   if (memlog) call log_memory_usage_delta(env%unit,'lbfgs alloc work', last_rss)
 
    opt_cycle: do icycle = 1, maxcycle
       iter = iter+1
@@ -1173,6 +1176,7 @@ subroutine lbfgs_relax &
    enddo opt_cycle
 
    if (allocated(lbfgs_s)) deallocate(lbfgs_s, lbfgs_y, lbfgs_rho)
+   if (memlog) call log_memory_usage_delta(env%unit,'lbfgs dealloc work', last_rss)
    if (allocated(displacement)) deallocate(displacement, g_anc, glast, anc)
    if (memlog) call log_memory_usage_delta(env%unit,'lbfgs_relax cleanup', last_rss)
    call trim_memory()
