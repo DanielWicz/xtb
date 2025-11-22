@@ -399,7 +399,7 @@ subroutine l_ancopt &
 
    use xtb_mctc_convert
    use xtb_mctc_lapack, only : lapack_syev
-   use xtb_mctc_meminfo, only : log_memory_usage_delta, memlog_enabled
+   use xtb_mctc_meminfo, only : log_memory_usage_delta, memlog_enabled, trim_memory
    use, intrinsic :: iso_fortran_env, only : int64
 
    use xtb_type_molecule
@@ -898,7 +898,7 @@ subroutine lbfgs_relax &
    use xtb_setparam
 
    use xtb_optimizer
-   use xtb_mctc_meminfo, only : log_memory_usage_delta, memlog_enabled
+   use xtb_mctc_meminfo, only : log_memory_usage_delta, memlog_enabled, trim_memory
    use, intrinsic :: iso_fortran_env, only : int64
 
    implicit none
@@ -1175,6 +1175,7 @@ subroutine lbfgs_relax &
    if (allocated(lbfgs_s)) deallocate(lbfgs_s, lbfgs_y, lbfgs_rho)
    if (allocated(displacement)) deallocate(displacement, g_anc, glast, anc)
    if (memlog) call log_memory_usage_delta(env%unit,'lbfgs_relax cleanup', last_rss)
+   call trim_memory()
 
 end subroutine lbfgs_relax
 

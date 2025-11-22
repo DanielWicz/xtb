@@ -10,6 +10,7 @@ module xtb_mctc_meminfo
    private
 
    public :: rss_kb, memlog_enabled, log_memory_usage, log_memory_usage_delta
+   public :: trim_memory
 
 contains
 
@@ -86,6 +87,21 @@ contains
             trim(label), rss, delta
       end if
       last_rss = rss
-   end subroutine log_memory_usage_delta
+end subroutine log_memory_usage_delta
+
+!> Try to release unused heap pages back to the OS (requires glibc).
+subroutine trim_memory()
+   use iso_c_binding, only : c_int, c_size_t
+   implicit none
+   interface
+      function c_malloc_trim(pad) bind(C, name="malloc_trim")
+         import :: c_int, c_size_t
+         integer(c_size_t), value :: pad
+         integer(c_int) :: c_malloc_trim
+      end function c_malloc_trim
+   end interface
+   integer(c_int) :: ierr
+   ierr = c_malloc_trim(0_c_size_t)
+end subroutine trim_memory
 
 end module xtb_mctc_meminfo

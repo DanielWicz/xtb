@@ -53,7 +53,7 @@ module xtb_scf
    use xtb_hlex
    use xtb_local
    use xtb_dipole
-   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta, trim_memory
    use, intrinsic :: iso_fortran_env, only : int64
    implicit none
    private
@@ -990,6 +990,7 @@ contains
       if (allocated(latp%dist2))  deallocate(latp%dist2)
       if (memlog) call log_memory_usage_delta(env%unit, 'scf cleanup', mem_last)
       if (profile) call timer%deallocate
+      call trim_memory()
    end subroutine cleanup_allocations
 
 end subroutine scf
