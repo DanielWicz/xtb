@@ -76,11 +76,19 @@ find_package("BLAS" REQUIRED)
 
 # If we link against Intel MKL provide the preprocessor flag that enables
 # MKL-specific memory management (e.g. disabling fast MM and freeing thread
-# buffers between SCC calls).  This keeps parity with the Meson build.
+# buffers between SCC calls).  This keeps parity with the Meson build, but
+# only activates when the MKL module is actually available.
 string(JOIN " " _xtb_blas_libs ${BLAS_LIBRARIES})
 string(JOIN " " _xtb_lapack_libs ${LAPACK_LIBRARIES})
 if(_xtb_blas_libs MATCHES "mkl" OR _xtb_lapack_libs MATCHES "mkl")
-  add_compile_definitions(WITH_MKL)
+  if(DEFINED ENV{MKLROOT})
+    find_path(MKL_INCLUDE_DIR mkl_service.mod
+      HINTS $ENV{MKLROOT}/include $ENV{MKLROOT}/include/intel64 $ENV{MKLROOT}/include/Intel64)
+    if(MKL_INCLUDE_DIR)
+      add_compile_definitions(WITH_MKL)
+      include_directories(${MKL_INCLUDE_DIR})
+    endif()
+  endif()
 endif()
 
 

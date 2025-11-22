@@ -7,7 +7,16 @@
 module xtb_mctc_meminfo
    use iso_fortran_env, only : int64
 #ifdef WITH_MKL
-   use mkl_service, only : mkl_free_buffers, mkl_thread_free_buffers, mkl_disable_fast_mm
+   ! mkl_service.mod is not always available; declare C bindings explicitly
+   use iso_c_binding, only : c_int
+   interface
+      integer(c_int) function mkl_free_buffers() bind(C, name="mkl_free_buffers")
+      end function mkl_free_buffers
+      integer(c_int) function mkl_thread_free_buffers() bind(C, name="mkl_thread_free_buffers")
+      end function mkl_thread_free_buffers
+      integer(c_int) function mkl_disable_fast_mm() bind(C, name="mkl_disable_fast_mm")
+      end function mkl_disable_fast_mm
+   end interface
 #endif
    implicit none
    private
@@ -118,13 +127,13 @@ subroutine trim_memory()
          integer(c_int) :: c_malloc_trim
       end function c_malloc_trim
    end interface
+   integer(c_int) :: ierr
 #ifdef WITH_MKL
    ! release internal MKL thread buffers that otherwise accumulate across
    ! repeated SCF/geometry steps when using the Intel/oneMKL backend
    call mkl_thread_free_buffers()
    call mkl_free_buffers()
 #endif
-   integer(c_int) :: ierr
    ierr = c_malloc_trim(0_c_size_t)
 end subroutine trim_memory
 
