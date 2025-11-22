@@ -37,7 +37,7 @@ module xtb_prog_main
    use xtb_scanparam
    use xtb_splitparam
    use xtb_fixparam
-   use xtb_mkl_memory, only: release_mkl_buffers
+   use xtb_mkl_memory, only: release_mkl_buffers, init_mkl_memory
    use xtb_features, only: get_xtb_feature
    use xtb_constrain_param, only: read_userdata
    use xtb_shake, only: init_shake
@@ -215,6 +215,9 @@ contains
       integer :: nproc
 
       type(TPrintTopo) :: printTopo ! gfnff topology printout list
+
+      ! Initialize MKL memory behavior (may disable Fast MM on Intel builds)
+      call init_mkl_memory()
 
       xenv%home = env%xtbhome
       xenv%path = env%xtbpath
