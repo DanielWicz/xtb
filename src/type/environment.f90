@@ -21,6 +21,7 @@ module xtb_type_environment
    use xtb_mctc_io, only : stdout
    use xtb_mctc_systools, only : rdvar, rdarg
    use xtb_type_iohandler, only : TIOHandler, init_ => init
+   use xtb_mctc_meminfo, only : init_memory_management
    implicit none
    private
 
@@ -153,6 +154,8 @@ subroutine initEnvironment(self, strict)
    else
       self%strict = .false.
    end if
+
+   call init_memory_management()
 
    call init_(self%io)
 

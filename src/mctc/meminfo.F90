@@ -7,15 +7,30 @@
 module xtb_mctc_meminfo
    use iso_fortran_env, only : int64
 #ifdef WITH_MKL
-   use mkl_service, only : mkl_free_buffers, mkl_thread_free_buffers
+   use mkl_service, only : mkl_free_buffers, mkl_thread_free_buffers, mkl_disable_fast_mm
 #endif
    implicit none
    private
 
    public :: rss_kb, memlog_enabled, log_memory_usage, log_memory_usage_delta
-   public :: trim_memory
+   public :: trim_memory, init_memory_management
+
+#ifdef WITH_MKL
+   logical, save :: mkl_fastmm_disabled = .false.
+#endif
 
 contains
+
+!> One-time memory backend setup (currently disables MKL fast memory manager
+!> which otherwise hoards large thread-local buffers across SCF cycles).
+subroutine init_memory_management()
+#ifdef WITH_MKL
+   if (.not. mkl_fastmm_disabled) then
+      call mkl_disable_fast_mm()
+      mkl_fastmm_disabled = .true.
+   end if
+#endif
+end subroutine init_memory_management
 
    !> Returns .true. once XTB_MEMLOG is set in the environment.
    logical function memlog_enabled()
