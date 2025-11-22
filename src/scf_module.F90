@@ -691,8 +691,14 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       if (allocated(djdr)) deallocate(djdr)
       if (allocated(djdtr)) deallocate(djdtr)
       if (allocated(djdL)) deallocate(djdL)
-      if (allocated(scD4)) deallocate(scD4)
-      if (allocated(aes)) deallocate(aes)
+      if (allocated(scD4)) then
+         call scD4%free()
+         deallocate(scD4)
+      end if
+      if (allocated(aes)) then
+         call aes%free()
+         deallocate(aes)
+      end if
       if (allocated(radcn)) deallocate(radcn)
       call ies%free()
       call coulomb%free()
@@ -899,8 +905,14 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       if (allocated(djdr)) deallocate(djdr)
       if (allocated(djdtr)) deallocate(djdtr)
       if (allocated(djdL)) deallocate(djdL)
-      if (allocated(scD4)) deallocate(scD4)
-      if (allocated(aes)) deallocate(aes)
+      if (allocated(scD4)) then
+         call scD4%free()
+         deallocate(scD4)
+      end if
+      if (allocated(aes)) then
+         call aes%free()
+         deallocate(aes)
+      end if
       if (allocated(radcn)) deallocate(radcn)
       call ies%free()
       call coulomb%free()
@@ -1053,8 +1065,14 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(djdr)) deallocate(djdr)
    if (allocated(djdtr)) deallocate(djdtr)
    if (allocated(djdL)) deallocate(djdL)
-   if (allocated(scD4)) deallocate(scD4)
-   if (allocated(aes)) deallocate(aes)
+   if (allocated(scD4)) then
+      call scD4%free()
+      deallocate(scD4)
+   end if
+   if (allocated(aes)) then
+      call aes%free()
+      deallocate(aes)
+   end if
    if (allocated(radcn)) deallocate(radcn)
    call ies%free()
    call coulomb%free()

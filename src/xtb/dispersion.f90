@@ -55,6 +55,8 @@ module xtb_xtb_dispersion
 
       procedure :: getEnergy
 
+      procedure :: free
+
    end type TxTBDispersion
 
 
@@ -64,6 +66,15 @@ module xtb_xtb_dispersion
 
 
 contains
+
+
+subroutine free(self)
+   class(TxTBDispersion), intent(inout) :: self
+   if (allocated(self%itbl)) deallocate(self%itbl)
+   if (allocated(self%dispMat)) deallocate(self%dispMat)
+   if (allocated(self%gweight)) deallocate(self%gweight)
+   if (allocated(self%refC6)) deallocate(self%refC6)
+end subroutine free
 
 
 subroutine initDispersion(self, input, mol)

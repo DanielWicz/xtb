@@ -31,6 +31,10 @@ module xtb_xtb_multipole
 
       real(wp), allocatable :: gab5(:, :)
 
+   contains
+
+      procedure :: free
+
    end type
 
 
@@ -40,6 +44,13 @@ module xtb_xtb_multipole
 
 
 contains
+
+
+subroutine free(self)
+   class(TxTBMultipole), intent(inout) :: self
+   if (allocated(self%gab3)) deallocate(self%gab3)
+   if (allocated(self%gab5)) deallocate(self%gab5)
+end subroutine free
 
 
 subroutine initMultipole(self, input)
