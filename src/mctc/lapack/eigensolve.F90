@@ -53,6 +53,7 @@ module xtb_mctc_lapack_eigensolve
       generic :: fact_solve => sfact_solve, dfact_solve
       procedure :: sfact_solve => mctc_ssygvd_factorized
       procedure :: dfact_solve => mctc_dsygvd_factorized
+      procedure :: free => free_solver
    end type TEigenSolver
 
 
@@ -64,6 +65,14 @@ module xtb_mctc_lapack_eigensolve
 
 contains
 
+   subroutine free_solver(self)
+      class(TEigenSolver), intent(inout) :: self
+      if (allocated(self%iwork)) deallocate(self%iwork)
+      if (allocated(self%swork)) deallocate(self%swork)
+      if (allocated(self%sbmat)) deallocate(self%sbmat)
+      if (allocated(self%dwork)) deallocate(self%dwork)
+      if (allocated(self%dbmat)) deallocate(self%dbmat)
+   end subroutine free_solver
 
 subroutine initSEigenSolver(self, env, bmat)
    character(len=*), parameter :: source = 'mctc_lapack_sygvd'

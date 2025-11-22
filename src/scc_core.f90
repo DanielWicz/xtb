@@ -637,6 +637,20 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    jter = jter + min(iter,thisiter)
    fail = .not.converged
 
+   if (allocated(S_factorized)) deallocate(S_factorized)
+   if (allocated(vs)) deallocate(vs)
+   if (allocated(vd)) deallocate(vd)
+   if (allocated(vq)) deallocate(vq)
+   if (allocated(df)) deallocate(df)
+   if (allocated(u)) deallocate(u)
+   if (allocated(a)) deallocate(a)
+   if (allocated(dq)) deallocate(dq)
+   if (allocated(dqlast)) deallocate(dqlast)
+   if (allocated(qlast_in)) deallocate(qlast_in)
+   if (allocated(omega)) deallocate(omega)
+   if (allocated(q_in)) deallocate(q_in)
+   if (allocated(atomicShift)) deallocate(atomicShift)
+
 end subroutine scc
 
 

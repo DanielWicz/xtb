@@ -504,6 +504,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    exb=0.0_wp
    if (allocated(xtbData%halogen)) then
       if (nxb > 0 .and. mol%npbc > 0) then
+         call solver%free()
          call env%error("Halogen bond correction not available with PBC", source)
          return
       end if
@@ -566,6 +567,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    ! prepare aes stuff
    if (allocated(xtbData%multipole)) then
       if (mol%npbc > 0) then
+         call solver%free()
          call env%error("Multipoles not available with PBC", source)
          return
       end if
@@ -639,6 +641,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    ! check if something terrible happened in the SCC
    call env%check(exitRun)
    if (exitRun) then
+      call solver%free()
       call env%error("Self consistent charge iterator terminated", source)
       return
    end if
@@ -804,6 +807,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 
    ! throw error for unconverged SCF
    if (fail) then
+      call solver%free()
       call env%error("Self consistent charge iterator did not converge", source)
    end if
 
@@ -915,6 +919,44 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (profile.and.pr) call timer%write(env%unit,'SCC')
 
 ! ========================================================================
+   call solver%free()
+   if (allocated(S)) deallocate(S)
+   if (allocated(dpint)) deallocate(dpint)
+   if (allocated(qpint)) deallocate(qpint)
+   if (allocated(H0)) deallocate(H0)
+   if (allocated(H0_noovlp)) deallocate(H0_noovlp)
+   if (allocated(tmp)) deallocate(tmp)
+   if (allocated(X)) deallocate(X)
+   if (allocated(ves)) deallocate(ves)
+   if (allocated(zsh)) deallocate(zsh)
+   if (allocated(matlist)) deallocate(matlist)
+   if (allocated(selfEnergy)) deallocate(selfEnergy)
+   if (allocated(dSEdcn)) deallocate(dSEdcn)
+   if (allocated(mdlst)) deallocate(mdlst)
+   if (allocated(mqlst)) deallocate(mqlst)
+   if (allocated(xblist)) deallocate(xblist)
+   if (allocated(sqrab)) deallocate(sqrab)
+   if (allocated(dcndr)) deallocate(dcndr)
+   if (allocated(cn)) deallocate(cn)
+   if (allocated(dcndL)) deallocate(dcndL)
+   if (allocated(Vpc)) deallocate(Vpc)
+   if (allocated(idnum)) deallocate(idnum)
+   if (allocated(cm5)) deallocate(cm5)
+   if (allocated(cm5a)) deallocate(cm5a)
+   if (allocated(dcm5a)) deallocate(dcm5a)
+   if (allocated(temp)) deallocate(temp)
+   if (allocated(Pew)) deallocate(Pew)
+   if (allocated(shellShift)) deallocate(shellShift)
+   if (allocated(dhdcn)) deallocate(dhdcn)
+   if (allocated(vs)) deallocate(vs)
+   if (allocated(vd)) deallocate(vd)
+   if (allocated(vq)) deallocate(vq)
+   if (allocated(H)) deallocate(H)
+   if (allocated(djdr)) deallocate(djdr)
+   if (allocated(djdtr)) deallocate(djdtr)
+   if (allocated(djdL)) deallocate(djdL)
+   if (allocated(scD4)) deallocate(scD4)
+
    if (profile) call timer%deallocate
 
 end subroutine scf
