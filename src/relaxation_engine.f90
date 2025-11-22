@@ -399,7 +399,8 @@ subroutine l_ancopt &
 
    use xtb_mctc_convert
    use xtb_mctc_lapack, only : lapack_syev
-   use xtb_mctc_meminfo, only : log_memory_usage, memlog_enabled
+   use xtb_mctc_meminfo, only : log_memory_usage_delta, memlog_enabled
+   use, intrinsic :: iso_fortran_env, only : int64
 
    use xtb_type_molecule
    use xtb_type_restart
@@ -457,6 +458,7 @@ subroutine l_ancopt &
    logical :: linear
    integer :: iter
    integer :: micro_iter
+   integer(int64) :: last_rss
    integer :: nvar
    integer :: maxcycle
    integer :: thiscycle
@@ -617,13 +619,14 @@ subroutine l_ancopt &
       &          "cycle", "energy", "change", "gnorm", "step", "conv?"
    memlog = memlog_enabled()
    micro_iter = 0
+   last_rss = -1_int64
 ! ======================================================================
    ANC_microiter: do while (.not.converged .and. iter.lt.maxcycle)
 ! ======================================================================
    micro_iter = micro_iter + 1
    if (memlog) then
       write(mem_label,'("lbfgs micro ",i0," pre")') micro_iter
-      call log_memory_usage(env%unit, trim(mem_label))
+      call log_memory_usage_delta(env%unit, trim(mem_label), last_rss)
    end if
    if (profile) call timer%measure(2,"model hessian")
    if (minpr) write(env%unit,'(" * calculating model hessian...")')
@@ -733,6 +736,10 @@ subroutine l_ancopt &
       j = i*(i-1)/2 + i
       hdiag(i) = 1.0_wp / hessp(j)
    enddo
+   if (memlog) then
+      write(mem_label,'("lbfgs micro ",i0," hess ready")') micro_iter
+      call log_memory_usage_delta(env%unit, trim(mem_label), last_rss)
+   end if
 
    ! reset approximate normal coordinate system
    xyz0 = molopt%xyz
@@ -746,7 +753,7 @@ subroutine l_ancopt &
 
    if (memlog) then
       write(mem_label,'("lbfgs micro ",i0," post")') micro_iter
-      call log_memory_usage(env%unit, trim(mem_label))
+      call log_memory_usage_delta(env%unit, trim(mem_label), last_rss)
    end if
    thiscycle = min(ceiling(thiscycle*opt%cycle_inc),2*opt%micro_cycle)
 
@@ -891,7 +898,8 @@ subroutine lbfgs_relax &
    use xtb_setparam
 
    use xtb_optimizer
-   use xtb_mctc_meminfo, only : log_memory_usage, memlog_enabled
+   use xtb_mctc_meminfo, only : log_memory_usage_delta, memlog_enabled
+   use, intrinsic :: iso_fortran_env, only : int64
 
    implicit none
 
@@ -945,6 +953,7 @@ subroutine lbfgs_relax &
    logical :: pr
    logical :: debug
    logical :: memlog
+   integer(int64) :: last_rss
    integer :: memory
    integer :: i,j,ij
 
@@ -993,6 +1002,7 @@ subroutine lbfgs_relax &
    econverged = .false.
    gconverged = .false.
    memlog = memlog_enabled()
+    last_rss = -1_int64
 
    memory = min(opt%memory,maxcycle)
 
@@ -1004,7 +1014,7 @@ subroutine lbfgs_relax &
    call dgemv('t',3*mol%n,nvar,1.0_wp,trafo,3*mol%n,g_xyz,1,0.0_wp,g_anc,1)
    ! get current gradient norm
    gnorm = sqrt(ddot(nvar,g_anc,1,g_anc,1))
-   if (memlog) call log_memory_usage(env%unit,'lbfgs_relax start')
+   if (memlog) call log_memory_usage_delta(env%unit,'lbfgs_relax start', last_rss)
    if (profile) call timer%measure(4)
    if (profile) call timer%measure(5,"Rational function")
 
@@ -1034,6 +1044,7 @@ subroutine lbfgs_relax &
    displacement = Uaug(:nvar,1) / Uaug(nvar1,1)
    ! discard memory allocation in favor of LBFGS
    deallocate( Aaug, Uaug, eaug )
+   if (memlog) call log_memory_usage_delta(env%unit,'lbfgs_relax post-RF', last_rss)
    if (profile) call timer%measure(5)
 
    ! now get the memory for the LBFGS
@@ -1087,9 +1098,13 @@ subroutine lbfgs_relax &
       if (profile) call timer%measure(6)
       call env%check(fail)
       if (fail) then
-         call env%error('SCF not converged, aborting...', source)
-         return
-      endif
+      call env%error('SCF not converged, aborting...', source)
+      return
+   endif
+      if (memlog) then
+         write(mem_label,'("lbfgs step ",i0," post-scf")') icycle
+         call log_memory_usage_delta(env%unit, trim(mem_label), last_rss)
+      end if
 
       ! transform cartesian gradient in ANC coordinate system
       if (profile) call timer%measure(4)
@@ -1140,7 +1155,7 @@ subroutine lbfgs_relax &
       endif
       if (memlog) then
          write(mem_label,'("lbfgs step ",i0)') icycle
-         call log_memory_usage(env%unit, trim(mem_label))
+         call log_memory_usage_delta(env%unit, trim(mem_label), last_rss)
       end if
 
       ! check for convergence of the minimization
@@ -1159,6 +1174,7 @@ subroutine lbfgs_relax &
 
    if (allocated(lbfgs_s)) deallocate(lbfgs_s, lbfgs_y, lbfgs_rho)
    if (allocated(displacement)) deallocate(displacement, g_anc, glast, anc)
+   if (memlog) call log_memory_usage_delta(env%unit,'lbfgs_relax cleanup', last_rss)
 
 end subroutine lbfgs_relax
 

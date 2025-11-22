@@ -9,7 +9,7 @@ module xtb_mctc_meminfo
    implicit none
    private
 
-   public :: rss_kb, memlog_enabled, log_memory_usage
+   public :: rss_kb, memlog_enabled, log_memory_usage, log_memory_usage_delta
 
 contains
 
@@ -67,5 +67,25 @@ contains
          write(unit,'(1x,"[mem]",1x,a,1x,i0," kB")') trim(label), rss
       end if
    end subroutine log_memory_usage
+
+   !> Same as log_memory_usage, but also reports delta to previous sample.
+   subroutine log_memory_usage_delta(unit, label, last_rss)
+      integer, intent(in) :: unit
+      character(len=*), intent(in) :: label
+      integer(int64), intent(inout) :: last_rss
+      integer(int64) :: rss, delta
+
+      if (.not.memlog_enabled()) return
+      rss = rss_kb()
+      if (rss < 0_int64) return
+      if (last_rss < 0_int64) then
+         write(unit,'(1x,"[mem]",1x,a,1x,i0," kB")') trim(label), rss
+      else
+         delta = rss - last_rss
+         write(unit,'(1x,"[mem]",1x,a,1x,i0," kB",1x,"(Δ",i0," kB)")') &
+            trim(label), rss, delta
+      end if
+      last_rss = rss
+   end subroutine log_memory_usage_delta
 
 end module xtb_mctc_meminfo
