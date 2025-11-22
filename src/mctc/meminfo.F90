@@ -6,6 +6,9 @@
 ! variable to avoid overhead in normal production runs.
 module xtb_mctc_meminfo
    use iso_fortran_env, only : int64
+#ifdef WITH_MKL
+   use mkl_service, only : mkl_free_buffers, mkl_thread_free_buffers
+#endif
    implicit none
    private
 
@@ -100,6 +103,12 @@ subroutine trim_memory()
          integer(c_int) :: c_malloc_trim
       end function c_malloc_trim
    end interface
+#ifdef WITH_MKL
+   ! release internal MKL thread buffers that otherwise accumulate across
+   ! repeated SCF/geometry steps when using the Intel/oneMKL backend
+   call mkl_thread_free_buffers()
+   call mkl_free_buffers()
+#endif
    integer(c_int) :: ierr
    ierr = c_malloc_trim(0_c_size_t)
 end subroutine trim_memory
