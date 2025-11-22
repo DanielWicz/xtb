@@ -19,6 +19,7 @@ set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
 
 list(APPEND srcs
    "${dir}/eigensolve.F90"
+   "${dir}/feast.F90"
    "${dir}/geneigval.f90"
    "${dir}/gst.f90"
    "${dir}/stdeigval.f90"

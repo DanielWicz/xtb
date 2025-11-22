@@ -18,6 +18,13 @@
 option(WITH_OpenMP "Enable support for shared memory parallelisation with OpenMP" TRUE)
 option(WITH_TBLITE "Use tblite library as backend for xTB" TRUE)
 option(WITH_CPCMX "Use CPCM-X solvation library for xTB" TRUE)
+option(WITH_MKL "Enable Intel MKL-specific optimisations (FEAST eigensolver)" OFF)
+
+# Auto-enable MKL if MKLROOT is set and the user did not explicitly disable it.
+if(NOT WITH_MKL AND DEFINED ENV{MKLROOT})
+  message(STATUS "MKLROOT detected — enabling WITH_MKL for FEAST eigensolver")
+  set(WITH_MKL ON)
+endif()
 
 
 # Set build type as CMake does not provide defaults

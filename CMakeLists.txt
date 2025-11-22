@@ -54,6 +54,10 @@ if(NOT TARGET "cpcmx::cpcmx" AND WITH_CPCMX)
    add_compile_definitions(WITH_CPCMX)
 endif()
 
+if(WITH_MKL)
+   add_compile_definitions(WITH_MKL)
+endif()
+
 if(NOT TARGET "test-drive::test-drive")
   find_package("test-drive" REQUIRED)
 endif()
