@@ -50,6 +50,7 @@ module xtb_prog_main
    use xtb_printout
    use xtb_setmod
    use xtb_propertyoutput
+   use xtb_blas_runtime, only: set_blas_threads
    use xtb_io_writer_turbomole, only: writeResultsTurbomole
    use xtb_io_writer_orca, only: writeResultsOrca
    use xtb_io_writer_gaussian, only: writeResultsGaussianExternal
@@ -1367,20 +1368,21 @@ contains
             call set_define
 
          case ('-P', '--parallel')
-!$          if (.false.) then
-               call env%warning('Program compiled without threading support', source)
-!$          end if
-            ! Always remove next argument to keep argument parsing consistent
+#ifdef _OPENMP
             call args%nextArg(sec)
-!$          if (allocated(sec)) then
-!$             if (getValue(env, sec, idum)) then
-!$                nproc = omp_get_num_threads()
-!$                call omp_set_num_threads(idum)
-#ifdef WITH_MKL
-!$                call mkl_set_num_threads(idum)
+            if (.not. allocated(sec)) then
+               call env%warning('Missing thread count after '//flag, source)
+            else
+               if (getValue(env, sec, idum)) then
+                  nproc = omp_get_num_threads()
+                  call omp_set_num_threads(idum)
+                  call set_blas_threads(idum)
+               end if
+            end if
+#else
+            call env%warning('Program compiled without threading support', source)
+            call args%nextArg(sec)
 #endif
-!$             end if
-!$          end if
 
          case ('--restart')
             restart = .true.

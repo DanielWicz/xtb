@@ -45,6 +45,7 @@ srcs += files(
   'basic_geo.f90',
   'bfgs.f90',
   'bias_path.f90',
+  'blas_runtime.F90',
   'blowsy.f90',
   'broyden.f90',
   'charge_model.f90',

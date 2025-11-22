@@ -48,11 +48,20 @@ end subroutine raise
 subroutine terminate(signal)
    use xtb_mctc_io, only : stderr
    use xtb_mctc_global, only : name
+   use xtb_blas_runtime, only : blas_thread_cleanup, blas_global_cleanup
    integer,intent(in) :: signal
    integer,parameter  :: p_exit_success = 0
    integer,parameter  :: p_exit_failure = 1
    integer,parameter  :: p_exit_external = -1
    if (.not.allocated(name)) name = 'program'
+
+#ifdef WITH_MKL
+   !$omp parallel
+      call blas_thread_cleanup()
+   !$omp end parallel
+#endif
+   call blas_global_cleanup()
+
    select case(signal)
    case(p_exit_success)
       write(stderr,'(  "normal termination of",1x,a)') name

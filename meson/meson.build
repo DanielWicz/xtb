@@ -155,10 +155,12 @@ if lapack_vendor == 'mkl'
   endif
   mkl_dep += cc.find_library('mkl_core')
   lib_deps += mkl_dep
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
 
 elif lapack_vendor == 'mkl-rt'
   mkl_dep = fc.find_library('mkl_rt')
   lib_deps += mkl_dep
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
 
 elif lapack_vendor == 'openblas'
   openblas_dep = dependency('openblas', required: false)
@@ -166,6 +168,7 @@ elif lapack_vendor == 'openblas'
     openblas_dep = fc.find_library('openblas')
   endif
   lib_deps += openblas_dep
+  add_project_arguments('-DWITH_OPENBLAS', language: 'fortran')
   if not fc.links('external dsytrs; call dsytrs(); end', dependencies: openblas_dep)
     lapack_dep = dependency('lapack', required: false)
     if not lapack_dep.found()
