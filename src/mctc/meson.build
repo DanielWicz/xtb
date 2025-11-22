@@ -54,4 +54,5 @@ srcs += files(
   'mctc_init.F90',
   'error.f90',
   'signal.c',
+  'meminfo.f90',
 )

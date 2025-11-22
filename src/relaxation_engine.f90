@@ -399,6 +399,7 @@ subroutine l_ancopt &
 
    use xtb_mctc_convert
    use xtb_mctc_lapack, only : lapack_syev
+   use xtb_mctc_meminfo, only : log_memory_usage, memlog_enabled
 
    use xtb_type_molecule
    use xtb_type_restart
@@ -451,9 +452,11 @@ subroutine l_ancopt &
    logical :: minpr
    logical :: pr
    logical :: debug
+   logical :: memlog
    logical :: converged
    logical :: linear
    integer :: iter
+   integer :: micro_iter
    integer :: nvar
    integer :: maxcycle
    integer :: thiscycle
@@ -463,6 +466,7 @@ subroutine l_ancopt &
    real(wp) :: a,b,c
    real(wp) :: U(3,3), x_center(3), y_center(3), rmsdval
    real(wp) :: estart,esave
+   character(len=64) :: mem_label
    real(wp), allocatable :: xyzopt(:,:)
    real(wp), allocatable :: grmsd(:,:)
    !  packed (model) hessian
@@ -611,9 +615,16 @@ subroutine l_ancopt &
 
    if (.not.pr.and.minpr) write(env%unit,'(a6,a14,a16,a16,a15,a6)') &
       &          "cycle", "energy", "change", "gnorm", "step", "conv?"
+   memlog = memlog_enabled()
+   micro_iter = 0
 ! ======================================================================
    ANC_microiter: do while (.not.converged .and. iter.lt.maxcycle)
 ! ======================================================================
+   micro_iter = micro_iter + 1
+   if (memlog) then
+      write(mem_label,'("lbfgs micro ",i0," pre")') micro_iter
+      call log_memory_usage(env%unit, trim(mem_label))
+   end if
    if (profile) call timer%measure(2,"model hessian")
    if (minpr) write(env%unit,'(" * calculating model hessian...")')
    call modhes(env,calc,set%mhset,molopt%n,molopt%xyz,molopt%at,hessp,pr)
@@ -733,6 +744,10 @@ subroutine l_ancopt &
       &    chk,calc,energy,egap,gradient,sigma,nvar,hdiag,trafo,xyz0, &
       &    converged,fail,timer,avconv)
 
+   if (memlog) then
+      write(mem_label,'("lbfgs micro ",i0," post")') micro_iter
+      call log_memory_usage(env%unit, trim(mem_label))
+   end if
    thiscycle = min(ceiling(thiscycle*opt%cycle_inc),2*opt%micro_cycle)
 
    call rmsd(molopt%n,xyz0,molopt%xyz,1,U,x_center,y_center,rmsdval,.false.,grmsd)
@@ -876,6 +891,7 @@ subroutine lbfgs_relax &
    use xtb_setparam
 
    use xtb_optimizer
+   use xtb_mctc_meminfo, only : log_memory_usage, memlog_enabled
 
    implicit none
 
@@ -928,6 +944,7 @@ subroutine lbfgs_relax &
    logical :: minpr
    logical :: pr
    logical :: debug
+   logical :: memlog
    integer :: memory
    integer :: i,j,ij
 
@@ -938,6 +955,7 @@ subroutine lbfgs_relax &
    real(wp) :: depred
    real(wp) :: max_displacement
    real(wp) :: step_length
+   character(len=64) :: mem_label
    real(wp), allocatable :: displacement(:)
    real(wp), allocatable :: g_anc(:)
    real(wp), allocatable :: glast(:)
@@ -974,6 +992,7 @@ subroutine lbfgs_relax &
    dconverged = .false.
    econverged = .false.
    gconverged = .false.
+   memlog = memlog_enabled()
 
    memory = min(opt%memory,maxcycle)
 
@@ -985,6 +1004,7 @@ subroutine lbfgs_relax &
    call dgemv('t',3*mol%n,nvar,1.0_wp,trafo,3*mol%n,g_xyz,1,0.0_wp,g_anc,1)
    ! get current gradient norm
    gnorm = sqrt(ddot(nvar,g_anc,1,g_anc,1))
+   if (memlog) call log_memory_usage(env%unit,'lbfgs_relax start')
    if (profile) call timer%measure(4)
    if (profile) call timer%measure(5,"Rational function")
 
@@ -1118,6 +1138,10 @@ subroutine lbfgs_relax &
             & iter, energy, ediff, gnorm, step_length, &
             & econverged, gconverged, dconverged
       endif
+      if (memlog) then
+         write(mem_label,'("lbfgs step ",i0)') icycle
+         call log_memory_usage(env%unit, trim(mem_label))
+      end if
 
       ! check for convergence of the minimization
       converged = econverged.and.gconverged
@@ -1132,6 +1156,9 @@ subroutine lbfgs_relax &
       if (profile) call timer%measure(8)
 
    enddo opt_cycle
+
+   if (allocated(lbfgs_s)) deallocate(lbfgs_s, lbfgs_y, lbfgs_rho)
+   if (allocated(displacement)) deallocate(displacement, g_anc, glast, anc)
 
 end subroutine lbfgs_relax
 
