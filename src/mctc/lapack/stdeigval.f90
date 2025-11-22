@@ -18,6 +18,7 @@
 !> LAPACK eigenproblem solvers
 module xtb_mctc_lapack_stdeigval
    use xtb_mctc_accuracy, only : sp, dp
+   use xtb_mctc_lapack_feast, only : feast_available, feast_syevd_dp
    implicit none
    private
 
@@ -84,36 +85,8 @@ module xtb_mctc_lapack_stdeigval
    end interface lapack_heev
 
    interface lapack_syevd
-      pure subroutine ssyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, &
-            & liwork, info)
-         import :: sp
-         real(sp), intent(inout) :: a(lda, *)
-         real(sp), intent(out) :: w(*)
-         character(len=1), intent(in) :: jobz
-         character(len=1), intent(in) :: uplo
-         integer, intent(out) :: info
-         integer, intent(in) :: n
-         integer, intent(in) :: lda
-         real(sp), intent(inout) :: work(*)
-         integer, intent(in) :: lwork
-         integer, intent(inout) :: iwork(*)
-         integer, intent(in) :: liwork
-      end subroutine ssyevd
-      pure subroutine dsyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, &
-            & liwork, info)
-         import :: dp
-         real(dp), intent(inout) :: a(lda, *)
-         real(dp), intent(out) :: w(*)
-         character(len=1), intent(in) :: jobz
-         character(len=1), intent(in) :: uplo
-         integer, intent(out) :: info
-         integer, intent(in) :: n
-         integer, intent(in) :: lda
-         real(dp), intent(inout) :: work(*)
-         integer, intent(in) :: lwork
-         integer, intent(inout) :: iwork(*)
-         integer, intent(in) :: liwork
-      end subroutine dsyevd
+      module procedure mctc_ssyevd
+      module procedure mctc_dsyevd
    end interface lapack_syevd
 
    interface lapack_heevd
@@ -597,6 +570,96 @@ module xtb_mctc_lapack_stdeigval
 
 
 contains
+
+
+   subroutine mctc_ssyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork, info)
+      character(len=1), intent(in)    :: jobz
+      character(len=1), intent(in)    :: uplo
+      integer,          intent(in)    :: n
+      integer,          intent(in)    :: lda
+      real(sp),         intent(inout) :: a(lda, *)
+      real(sp),         intent(out)   :: w(*)
+      real(sp),         intent(inout) :: work(*)
+      integer,          intent(inout) :: iwork(*)
+      integer,          intent(in)    :: lwork
+      integer,          intent(in)    :: liwork
+      integer,          intent(out)   :: info
+
+      interface
+         subroutine ssyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork, info)
+            import :: sp
+            character(len=1), intent(in)    :: jobz
+            character(len=1), intent(in)    :: uplo
+            integer,          intent(in)    :: n
+            integer,          intent(in)    :: lda
+            real(sp),         intent(inout) :: a(lda, *)
+            real(sp),         intent(out)   :: w(*)
+            real(sp),         intent(inout) :: work(*)
+            integer,          intent(inout) :: iwork(*)
+            integer,          intent(in)    :: lwork
+            integer,          intent(in)    :: liwork
+            integer,          intent(out)   :: info
+         end subroutine ssyevd
+      end interface
+
+      call ssyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork, info)
+
+   end subroutine mctc_ssyevd
+
+
+   subroutine mctc_dsyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork, info)
+      character(len=1), intent(in)    :: jobz
+      character(len=1), intent(in)    :: uplo
+      integer,          intent(in)    :: n
+      integer,          intent(in)    :: lda
+      real(dp),         intent(inout) :: a(lda, *)
+      real(dp),         intent(out)   :: w(*)
+      real(dp),         intent(inout) :: work(*)
+      integer,          intent(inout) :: iwork(*)
+      integer,          intent(in)    :: lwork
+      integer,          intent(in)    :: liwork
+      integer,          intent(out)   :: info
+
+      integer :: feast_info
+      logical :: used_feast
+
+      interface
+         subroutine dsyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork, info)
+            import :: dp
+            character(len=1), intent(in)    :: jobz
+            character(len=1), intent(in)    :: uplo
+            integer,          intent(in)    :: n
+            integer,          intent(in)    :: lda
+            real(dp),         intent(inout) :: a(lda, *)
+            real(dp),         intent(out)   :: w(*)
+            real(dp),         intent(inout) :: work(*)
+            integer,          intent(inout) :: iwork(*)
+            integer,          intent(in)    :: lwork
+            integer,          intent(in)    :: liwork
+            integer,          intent(out)   :: info
+         end subroutine dsyevd
+      end interface
+
+      used_feast = .false.
+      info = 0
+      feast_info = 0
+
+      if (feast_available) then
+         used_feast = .true.
+         call feast_syevd_dp(jobz, uplo, n, a, lda, w, feast_info)
+         if (feast_info == 0) then
+            return
+         end if
+      end if
+
+      call dsyevd(jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork, info)
+
+      if (used_feast .and. info /= 0) then
+         ! Preserve original FEAST error if LAPACK also fails
+         info = merge(feast_info, info, feast_info /= 0)
+      end if
+
+   end subroutine mctc_dsyevd
 
 
 end module xtb_mctc_lapack_stdeigval

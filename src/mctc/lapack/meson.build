@@ -19,6 +19,7 @@ srcs += files(
    'eigensolve.F90',
    'geneigval.f90',
    'gst.f90',
+   'feast.F90',
    'stdeigval.f90',
    'trf.f90',
    'tri.f90',

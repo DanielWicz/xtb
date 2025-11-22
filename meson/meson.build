@@ -135,6 +135,11 @@ if lapack_vendor == 'auto'
   endif
 endif
 
+mkl_enabled = lapack_vendor == 'mkl' or lapack_vendor == 'mkl-rt'
+if mkl_enabled
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
+endif
+
 if lapack_vendor == 'mkl'
   mkl_dep = []
   if fc_id == 'intel' or fc_id == 'intel-llvm'
