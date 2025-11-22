@@ -127,7 +127,6 @@ subroutine updateMolecule_api(venv, vmol, positions, lattice) &
    type(VMolecule), pointer :: mol
    real(c_double), intent(in) :: positions(3, *)
    real(c_double), intent(in), optional :: lattice(3, 3)
-   real(wp) :: latvecs(3, 3)
    integer(c_int) :: status
 
    if (c_associated(venv)) then

@@ -97,6 +97,8 @@ function checkEnvironment_api(venv) result(status) &
    integer(c_int) :: status
    logical :: exitRun
 
+   status = 1
+
    if (c_associated(venv)) then
       call c_f_pointer(venv, env)
       call checkGlobalEnv
@@ -212,7 +214,7 @@ subroutine setVerbosity_api(venv, verbosity) &
    character(len=*), parameter :: source = 'xtb_api_setVerbosity'
    type(c_ptr), value :: venv
    type(VEnvironment), pointer :: env
-   integer, value :: verbosity
+   integer(c_int), value :: verbosity
 
    if (c_associated(venv)) then
       call c_f_pointer(venv, env)
