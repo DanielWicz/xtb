@@ -18,6 +18,18 @@ module xtb_mctc_meminfo
       end function mkl_disable_fast_mm
    end interface
 #endif
+
+#ifdef WITH_OPENBLAS
+   use iso_c_binding, only : c_int
+   interface
+      subroutine openblas_thread_cleanup() bind(C, name="openblas_thread_cleanup")
+      end subroutine openblas_thread_cleanup
+      subroutine openblas_set_num_threads(n) bind(C, name="openblas_set_num_threads")
+         import :: c_int
+         integer(c_int), value :: n
+      end subroutine openblas_set_num_threads
+   end interface
+#endif
    implicit none
    private
 
@@ -119,6 +131,7 @@ end subroutine log_memory_usage_delta
 !> Try to release unused heap pages back to the OS (requires glibc).
 subroutine trim_memory()
    use iso_c_binding, only : c_int, c_size_t
+   use omp_lib,        only : omp_get_max_threads
    implicit none
    interface
       function c_malloc_trim(pad) bind(C, name="malloc_trim")
@@ -128,6 +141,13 @@ subroutine trim_memory()
       end function c_malloc_trim
    end interface
    integer(c_int) :: ierr
+#ifdef WITH_OPENBLAS
+   integer :: nthreads
+   ! OpenBLAS keeps per-thread caches; force cleanup and collapse to one thread
+   call openblas_thread_cleanup()
+   nthreads = omp_get_max_threads()
+   call openblas_set_num_threads(1_c_int)
+#endif
 #ifdef WITH_MKL
    ! release internal MKL thread buffers that otherwise accumulate across
    ! repeated SCF/geometry steps when using the Intel/oneMKL backend
@@ -135,6 +155,9 @@ subroutine trim_memory()
    call mkl_free_buffers()
 #endif
    ierr = c_malloc_trim(0_c_size_t)
+#ifdef WITH_OPENBLAS
+   if (nthreads > 1) call openblas_set_num_threads(int(nthreads, c_int))
+#endif
 end subroutine trim_memory
 
 end module xtb_mctc_meminfo
