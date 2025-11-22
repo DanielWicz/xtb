@@ -20,6 +20,7 @@ module xtb_api_environment
    use, intrinsic :: iso_c_binding
    use xtb_mctc_accuracy, only : wp
    use xtb_mctc_io
+   use xtb_blas_runtime, only : blas_flush_buffers
    use xtb_api_utils
    use xtb_type_environment
    use xtb_xtb_calculator
@@ -74,6 +75,9 @@ subroutine delEnvironment_api(venv) &
       deallocate(env)
       venv = c_null_ptr
    end if
+
+   ! Ensure MKL/BLAS thread pools are returned when tearing down the environment
+   call blas_flush_buffers()
 
 end subroutine delEnvironment_api
 

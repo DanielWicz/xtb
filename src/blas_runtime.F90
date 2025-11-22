@@ -14,6 +14,7 @@ module xtb_blas_runtime
    public :: set_blas_threads
    public :: blas_thread_cleanup
    public :: blas_global_cleanup
+   public :: blas_flush_buffers
 
 #ifdef WITH_OPENBLAS
    interface
@@ -68,5 +69,15 @@ contains
       call mkl_free_buffers()
 #endif
    end subroutine blas_global_cleanup
+
+
+   subroutine blas_flush_buffers()
+#ifdef WITH_MKL
+!$omp parallel
+      call blas_thread_cleanup()
+!$omp end parallel
+      call blas_global_cleanup()
+#endif
+   end subroutine blas_flush_buffers
 
 end module xtb_blas_runtime

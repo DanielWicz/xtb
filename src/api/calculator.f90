@@ -21,6 +21,7 @@ module xtb_api_calculator
    use xtb_mctc_accuracy, only : wp
    use xtb_mctc_io
    use xtb_mctc_systools, only : rdpath
+   use xtb_blas_runtime, only : blas_flush_buffers
    use xtb_api_environment
    use xtb_api_molecule
    use xtb_api_utils
@@ -81,6 +82,9 @@ subroutine delCalculator_api(vcalc) &
       deallocate(calc)
       vcalc = c_null_ptr
    end if
+
+   ! Release vendor-managed BLAS pools between API calls
+   call blas_flush_buffers()
 
 end subroutine delCalculator_api
 
