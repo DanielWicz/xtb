@@ -26,6 +26,7 @@ module xtb_relaxation_engine
    use xtb_optimizer, only : convergence_log, load_turbomole_log
    use xtb_bfgs
    use xtb_david2
+   use xtb_blas_runtime, only : blas_flush_buffers
    implicit none
    private :: wp
    !> precision of the rational function step (usually single instead of double)
@@ -124,6 +125,7 @@ module xtb_relaxation_engine
    !> format for printlevel==2 cycle header
    character(len=*), private, parameter :: cyclefmt = &
       '(/,72("."),/,30(".")," CYCLE",i5,1x,30("."),/,72("."))'
+   character(len=*), private, parameter :: memfmt = '(:,"   [mem trim after cycle]", i0, " bytes returned")'
 
 contains
 
@@ -1070,6 +1072,9 @@ subroutine lbfgs_relax &
          call env%error('SCF not converged, aborting...', source)
          return
       endif
+
+      ! Release MKL/glibc caches after each geometry step to curb RSS growth
+      call blas_flush_buffers()
 
       ! transform cartesian gradient in ANC coordinate system
       if (profile) call timer%measure(4)
