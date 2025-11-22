@@ -104,6 +104,7 @@ srcs += files(
   'makel.f90',
   'matinv.f90',
   'mdoptim.f90',
+  'mkl_memory.F90',
   'metadynamic.f90',
   'modef.f90',
   'model_hessian.f90',

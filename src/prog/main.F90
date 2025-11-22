@@ -37,6 +37,7 @@ module xtb_prog_main
    use xtb_scanparam
    use xtb_splitparam
    use xtb_fixparam
+   use xtb_mkl_memory, only: release_mkl_buffers
    use xtb_features, only: get_xtb_feature
    use xtb_constrain_param, only: read_userdata
    use xtb_shake, only: init_shake
@@ -2084,6 +2085,8 @@ contains
       end if
 
       write (env%unit, '(a)')
+      ! Flush MKL fast memory manager caches before shutdown to avoid false leaks
+      call release_mkl_buffers()
       call terminate(0)
 
    end subroutine finalize_xtb

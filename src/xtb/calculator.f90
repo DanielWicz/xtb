@@ -37,6 +37,7 @@ module xtb_xtb_calculator
    use xtb_sphereparam
    use xtb_scf, only : scf
    use xtb_peeq, only : peeq
+   use xtb_mkl_memory, only : release_mkl_buffers
    use xtb_embedding, only : read_pcem
    use xtb_metadynamic
    use xtb_constrainpot
@@ -346,6 +347,9 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
       write(env%unit,'(9x,53(":"))')
       write(env%unit,'(a)')
    endif
+
+   ! Ensure MKL fast-memory pools do not accumulate across optimization steps
+   call release_mkl_buffers()
 
 end subroutine singlepoint
 
