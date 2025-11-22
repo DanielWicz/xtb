@@ -20,8 +20,9 @@
 module xtb_mctc_lapack_eigensolve
    use xtb_mctc_accuracy, only : sp, dp
    use xtb_mctc_blas_level3, only : blas_trsm
-   use xtb_mctc_lapack_geneigval, only : lapack_sygvd
-   use xtb_mctc_lapack_stdeigval, only : lapack_syevd
+   ! CHANGE: Import the memory-safe QR solvers (sygv/syev)
+   use xtb_mctc_lapack_geneigval, only : lapack_sygvd, lapack_sygv
+   use xtb_mctc_lapack_stdeigval, only : lapack_syevd, lapack_syev
    use xtb_mctc_lapack_gst, only : lapack_sygst
    use xtb_mctc_lapack_trf, only : mctc_potrf
    use xtb_mctc_lapack_feast, only : feast_available, feast_sygvd_dp
@@ -127,14 +128,15 @@ subroutine mctc_ssygvd(self, env, amat, bmat, eval)
    real(sp), intent(inout) :: amat(:, :)
    real(sp), intent(in) :: bmat(:, :)
    real(sp), intent(out) :: eval(:)
-   integer :: info, lswork, liwork
+   integer :: info, lswork
 
    self%sbmat(:, :) = bmat
 
    lswork = size(self%swork)
-   liwork = size(self%iwork)
-   call lapack_sygvd(1, 'v', 'u', self%n, amat, self%n, self%sbmat, self%n, eval, &
-      & self%swork, lswork, self%iwork, liwork, info)
+   ! CHANGE: Use SSYGV (QR) instead of SSYGVD (D&C)
+   ! Note: iwork/liwork arguments removed
+   call lapack_sygv(1, 'v', 'u', self%n, amat, self%n, self%sbmat, self%n, eval, &
+      & self%swork, lswork, info)
 
    if (info /= 0) then
       call env%error("Failed to solve eigenvalue problem", source)
@@ -150,7 +152,7 @@ subroutine mctc_dsygvd(self, env, amat, bmat, eval)
    real(dp), intent(inout) :: amat(:, :)
    real(dp), intent(in) :: bmat(:, :)
    real(dp), intent(out) :: eval(:)
-   integer :: info, ldwork, liwork
+   integer :: info, ldwork
 #ifdef USE_CUSOLVER
    integer :: istat
 #endif
@@ -173,15 +175,16 @@ subroutine mctc_dsygvd(self, env, amat, bmat, eval)
    end if
 #else
    ldwork = size(self%dwork)
-   liwork = size(self%iwork)
 
    if (feast_available) then
       call feast_sygvd_dp(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, info)
       if (info == 0) return
    end if
 
-   call lapack_sygvd(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, &
-      & self%dwork, ldwork, self%iwork, liwork, info)
+   ! CHANGE: Use DSYGV (QR) instead of DSYGVD (D&C)
+   ! Note: iwork/liwork arguments removed
+   call lapack_sygv(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, &
+      & self%dwork, ldwork, info)
 #endif
 
    if (info /= 0) then
@@ -198,10 +201,9 @@ subroutine mctc_ssygvd_factorized(self, env, amat, bmat_factorized, eval)
    real(sp), intent(inout) :: amat(:, :)
    real(sp), intent(in) :: bmat_factorized(:, :)
    real(sp), intent(out) :: eval(:)
-   integer :: info, lswork, liwork
+   integer :: info, lswork
 
    lswork = size(self%swork)
-   liwork = size(self%iwork)
 
    CALL lapack_sygst( 1, 'u', self%n, amat, self%n, bmat_factorized, self%n, info )
 
@@ -210,7 +212,9 @@ subroutine mctc_ssygvd_factorized(self, env, amat, bmat_factorized, eval)
       return
    end if
 
-   CALL lapack_syevd( 'v', 'u', self%n, amat, self%n, eval, self%swork, lswork, self%iwork, liwork, info )
+   ! CHANGE: Use SSYEV (QR) instead of SSYEVD (D&C)
+   ! Use single precision swork
+   CALL lapack_syev( 'v', 'u', self%n, amat, self%n, eval, self%swork, lswork, info )
 
    if (info /= 0) then
       call env%error("Failed to compute eigenvalues and eigenvectors", source)
@@ -229,11 +233,10 @@ subroutine mctc_dsygvd_factorized(self, env, amat, bmat_factorized, eval)
    real(dp), intent(inout) :: amat(:, :)
    real(dp), intent(in) :: bmat_factorized(:, :)
    real(dp), intent(out) :: eval(:)
-   integer :: info, ldwork, liwork
+   integer :: info, ldwork
    real(dp), allocatable :: bfull(:, :), afeast(:, :)
 
    ldwork = size(self%dwork)
-   liwork = size(self%iwork)
 
    if (feast_available) then
       allocate(bfull(self%n, self%n), source = 0.0_dp)
@@ -257,8 +260,9 @@ subroutine mctc_dsygvd_factorized(self, env, amat, bmat_factorized, eval)
       return
    end if
 
-   CALL lapack_syevd( 'v', 'u', self%n, amat, self%n, eval, self%dwork, ldwork, self%iwork, liwork, info )
-
+   ! CHANGE: Use DSYEV (QR) instead of DSYEVD (D&C)
+   ! Use double precision dwork
+   CALL lapack_syev( 'v', 'u', self%n, amat, self%n, eval, self%dwork, ldwork, info )
    if (info /= 0) then
       call env%error("Failed to compute eigenvalues and eigenvectors", source)
       return

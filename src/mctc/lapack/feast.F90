@@ -60,7 +60,7 @@ contains
       call feastinit(fpm)
       fpm(1) = 0          ! silence
       fpm(2) = 12         ! contour points
-      fpm(3) = 12         ! 10^-12 tolerance target
+      fpm(3) = 6         ! 10^-6 tolerance target
       fpm(4) = 8          ! max refinement loops
       fpm(5) = 1          ! recycle input subspace
 
