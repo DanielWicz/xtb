@@ -49,6 +49,8 @@ module xtb_xtb_calculator
    use xtb_eeq, only : eeq_chrgeq
    use xtb_iniq, only : iniqcn
    use xtb_scc_core, only : iniqshell
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta
+   use, intrinsic :: iso_fortran_env, only : int64
    implicit none
 
    private
@@ -239,6 +241,8 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    logical :: inmol
    logical, parameter :: ccm = .true.
    logical :: exitRun
+   logical :: memlog
+   integer(int64) :: mem_last
 
    call mol%update
 
@@ -247,6 +251,9 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
    sigma(:, :) = 0.0_wp
    hlgap = 0.0_wp
    efix = 0.0_wp
+   memlog = memlog_enabled()
+   mem_last = -1_int64
+   if (memlog) call log_memory_usage_delta(env%unit, 'singlepoint start', mem_last)
 
    ! ------------------------------------------------------------------------
    !  actual calculation
@@ -275,6 +282,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
       call env%error("Electronic structure method terminated", source)
       return
    end if
+   if (memlog) call log_memory_usage_delta(env%unit, 'singlepoint post-scf', mem_last)
 
    ! ------------------------------------------------------------------------
    !  post processing of gradient and energy
@@ -346,6 +354,7 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
       write(env%unit,'(9x,53(":"))')
       write(env%unit,'(a)')
    endif
+   if (memlog) call log_memory_usage_delta(env%unit, 'singlepoint end', mem_last)
 
 end subroutine singlepoint
 

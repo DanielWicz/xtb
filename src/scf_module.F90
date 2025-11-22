@@ -53,6 +53,8 @@ module xtb_scf
    use xtb_hlex
    use xtb_local
    use xtb_dipole
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta
+   use, intrinsic :: iso_fortran_env, only : int64
    implicit none
    private
 
@@ -192,6 +194,8 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    real(wp) :: esave,eel
    real(wp) :: eaes,t6,t7,pi,epol,kexpe
    parameter (pi =  3.14159265358979_wp)
+   logical :: memlog
+   integer(int64) :: mem_last
 
 !  some parameter defaults which are not fitted
    data ljexp/12.0_wp/ ! XB parameter for damped LJ in GFN1
@@ -236,6 +240,9 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 ! ------------------------------------------------------------------------
    if (profile) call timer%new(7,.false.)
    if (profile) call timer%measure(1,"SCC setup")
+   memlog = memlog_enabled()
+   mem_last = -1_int64
+   if (memlog) call log_memory_usage_delta(env%unit, 'scf start', mem_last)
    rmsq  =1.e+42_wp
    lastdiag=.false.
    lpcem = pcem%n > 0
@@ -562,6 +569,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 #endif
    call count_dpint(ndp, dpint, neglect)
    call count_qpint(nqp, qpint, neglect)
+   if (memlog) call log_memory_usage_delta(env%unit, 'scf integrals', mem_last)
 
    ! prepare aes stuff
    if (allocated(xtbData%multipole)) then
@@ -642,6 +650,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       call env%error("Self consistent charge iterator terminated", source)
       return
    end if
+   if (memlog) call log_memory_usage_delta(env%unit, 'scf post-scc', mem_last)
 
    ! check for convergence
    res % converged = .not. fail
@@ -801,6 +810,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (.not.pr.and.profile.and.minpr) &
       call timer%write_timing(env%unit,6,'gradient')
    if (profile) call timer%measure(7,"printout")
+   if (memlog) call log_memory_usage_delta(env%unit, 'scf gradient', mem_last)
 
    ! throw error for unconverged SCF
    if (fail) then
@@ -913,6 +923,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    res%gnorm = norm2(gradient)
 
    if (profile.and.pr) call timer%write(env%unit,'SCC')
+   if (memlog) call log_memory_usage_delta(env%unit, 'scf end', mem_last)
 
 ! ========================================================================
    if (profile) call timer%deallocate
