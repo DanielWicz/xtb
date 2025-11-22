@@ -155,6 +155,11 @@ endif
    else
      displacement = -d*f_damp
    endif
+
+   if (allocated(d)) deallocate(d)
+   if (allocated(q)) deallocate(q)
+   if (allocated(a)) deallocate(a)
+
 end subroutine lbfgs_step
 
 

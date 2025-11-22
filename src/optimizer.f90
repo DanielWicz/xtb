@@ -783,11 +783,23 @@ subroutine relax(env,iter,mol,anc,restart,maxcycle,maxdispl,ethr,gthr, &
    call env%check(fail)
    if (fail) then
       call env%error('SCF not converged, aborting...', source)
+      if (allocated(Uaug))  deallocate(Uaug)
+      if (allocated(eaug))  deallocate(eaug)
+      if (allocated(Aaug))  deallocate(Aaug)
+      if (allocated(gold))  deallocate(gold)
+      if (allocated(displ)) deallocate(displ)
+      if (allocated(gint))  deallocate(gint)
       return
    endif
    if (energy.gt.1.d42) then
       call env%error('energy is bogus! aborting...', source)
       fail=.true.
+      if (allocated(Uaug))  deallocate(Uaug)
+      if (allocated(eaug))  deallocate(eaug)
+      if (allocated(Aaug))  deallocate(Aaug)
+      if (allocated(gold))  deallocate(gold)
+      if (allocated(displ)) deallocate(displ)
+      if (allocated(gint))  deallocate(gint)
       return
    endif
    
@@ -808,6 +820,12 @@ subroutine relax(env,iter,mol,anc,restart,maxcycle,maxdispl,ethr,gthr, &
    if(gnorm.gt.500.) then   
       call env%error('|grad| > 500, something is totally wrong!', source)
       fail=.true.
+      if (allocated(Uaug))  deallocate(Uaug)
+      if (allocated(eaug))  deallocate(eaug)
+      if (allocated(Aaug))  deallocate(Aaug)
+      if (allocated(gold))  deallocate(gold)
+      if (allocated(displ)) deallocate(displ)
+      if (allocated(gint))  deallocate(gint)
       return
    endif
 
@@ -856,6 +874,12 @@ subroutine relax(env,iter,mol,anc,restart,maxcycle,maxdispl,ethr,gthr, &
    ! check 0 energy case !
    if ( energy .eq. 0 ) then
       call env%error('external program error', source)
+      if (allocated(Uaug))  deallocate(Uaug)
+      if (allocated(eaug))  deallocate(eaug)
+      if (allocated(Aaug))  deallocate(Aaug)
+      if (allocated(gold))  deallocate(gold)
+      if (allocated(displ)) deallocate(displ)
+      if (allocated(gint))  deallocate(gint)
       return
    end if
 
@@ -918,6 +942,12 @@ subroutine relax(env,iter,mol,anc,restart,maxcycle,maxdispl,ethr,gthr, &
    ! error handling after RF calculation !
    if (fail .or. abs(Uaug(nvar1,1)).lt.1.e-10) then
       call env%error("internal rational function error", source)
+      if (allocated(Uaug))  deallocate(Uaug)
+      if (allocated(eaug))  deallocate(eaug)
+      if (allocated(Aaug))  deallocate(Aaug)
+      if (allocated(gold))  deallocate(gold)
+      if (allocated(displ)) deallocate(displ)
+      if (allocated(gint))  deallocate(gint)
       return
    end if
 
@@ -966,6 +996,12 @@ subroutine relax(env,iter,mol,anc,restart,maxcycle,maxdispl,ethr,gthr, &
       restart=.false.
       converged = .true.
       etot=energy
+      if (allocated(Uaug))  deallocate(Uaug)
+      if (allocated(eaug))  deallocate(eaug)
+      if (allocated(Aaug))  deallocate(Aaug)
+      if (allocated(gold))  deallocate(gold)
+      if (allocated(displ)) deallocate(displ)
+      if (allocated(gint))  deallocate(gint)
       return
    endif
 !! ========================================================================
@@ -976,6 +1012,9 @@ subroutine relax(env,iter,mol,anc,restart,maxcycle,maxdispl,ethr,gthr, &
    if (allocated(Uaug))  deallocate(Uaug)
    if (allocated(eaug))  deallocate(eaug)
    if (allocated(Aaug))  deallocate(Aaug)
+   if (allocated(gold))  deallocate(gold)
+   if (allocated(displ)) deallocate(displ)
+   if (allocated(gint))  deallocate(gint)
 
    ! post micro cycle processing !
    restart=.true.

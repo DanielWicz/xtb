@@ -100,6 +100,9 @@ subroutine bfgs(nat3,gnorm,grad,grado,dx,hess)
       if(abs(hess(ij)).lt.thr)hess(ij)=thr
    enddo
 
+   if (allocated(svec)) deallocate(svec)
+   if (allocated(tvec)) deallocate(tvec)
+
 end subroutine bfgs
 
 subroutine powell(nat3,gnorm,grad,grado,dx,hess)
