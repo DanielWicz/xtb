@@ -71,11 +71,6 @@ module xtb_scf
       & 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, &
       & 1, 0, 0, 0, 0, 0]
 
-   !> Large work buffers are cached between SCF calls to avoid repeated
-   !> allocate/deallocate cycles that grow the heap in long geometry runs.
-   real(wp), allocatable, target, save :: dpint_ws(:, :, :)
-   real(wp), allocatable, target, save :: qpint_ws(:, :, :)
-
 contains
 
 pure integer(int64) function kb_r1(a) result(kb)
@@ -98,20 +93,6 @@ pure integer(int64) function kb_i2(a) result(kb)
    integer, intent(in) :: a(:,:)
    kb = int(storage_size(a, kind=int64)/8_int64, int64) * size(a, kind=int64) / 1024_int64
 end function kb_i2
-
-subroutine ensure_scf_workspace(nao)
-   integer, intent(in) :: nao
-
-   if (.not.allocated(dpint_ws) .or. size(dpint_ws,2) /= nao) then
-      if (allocated(dpint_ws)) deallocate(dpint_ws, qpint_ws)
-      allocate(dpint_ws(3, nao, nao))
-      allocate(qpint_ws(6, nao, nao))
-      if (memlog_enabled()) then
-         write(*,'(1x,"[mem]",1x,a,1x,i0," kB")') 'alloc dpint_ws', kb_r3(dpint_ws)
-         write(*,'(1x,"[mem]",1x,a,1x,i0," kB")') 'alloc qpint_ws', kb_r3(qpint_ws)
-      end if
-   end if
-end subroutine ensure_scf_workspace
 
 subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       & egap, et, maxiter, prlevel, restart, grd, acc, energy, gradient, res)
@@ -198,7 +179,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    real(wp), allocatable :: djdL(:, :, :)
 !  AES stuff
    type(TxTBMultipole), allocatable :: aes
-   real(wp),pointer      :: dpint(:,:,:),qpint(:,:,:)
+   real(wp),allocatable  :: dpint(:,:,:),qpint(:,:,:)
    real(wp),allocatable  :: radcn(:) ! CBNEW
 
 ! ========================================================================
@@ -996,8 +977,6 @@ contains
       character(len=*), intent(in) :: stage
       if (.not.memlog) return
       write(env%unit,'(1x,"[mem]",1x,a)') 'scf arrays '//trim(stage)
-      if (allocated(dpint_ws)) call log_size('dpint_ws', kb_r3(dpint_ws))
-      if (allocated(qpint_ws)) call log_size('qpint_ws', kb_r3(qpint_ws))
       if (allocated(S))       call log_size('S',        kb_r2(S))
       if (allocated(X))       call log_size('X',        kb_r2(X))
       if (allocated(H0))      call log_size('H0',       kb_r1(H0))
@@ -1075,9 +1054,8 @@ contains
       if (allocated(aes))         deallocate(aes)
       if (allocated(latp%trans))  deallocate(latp%trans)
       if (allocated(latp%dist2))  deallocate(latp%dist2)
-      if (associated(dpint))      deallocate(dpint)
-      if (associated(qpint))      deallocate(qpint)
-      nullify(dpint, qpint)
+      if (allocated(dpint))      deallocate(dpint)
+      if (allocated(qpint))      deallocate(qpint)
       if (memlog) call log_memory_usage_delta(env%unit, 'scf cleanup', mem_last)
       call log_scf_arrays('after cleanup')
       if (profile) call timer%deallocate
