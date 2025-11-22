@@ -17,6 +17,7 @@ module xtb_blas_runtime
    public :: blas_flush_buffers
    public :: blas_trim_os
    public :: blas_last_trim_result
+   public :: blas_tune_malloc
 
 #ifdef WITH_OPENBLAS
    interface
@@ -48,9 +49,20 @@ module xtb_blas_runtime
          integer(c_int) :: malloc_trim
          integer(c_size_t), value :: pad
       end function malloc_trim
+
+      function mallopt(param, value) bind(C, name='mallopt')
+         import :: c_int
+         integer(c_int) :: mallopt
+         integer(c_int), value :: param, value
+      end function mallopt
    end interface
 
    integer(c_int) :: last_trim = -1
+   logical :: tuned = .false.
+
+   integer(c_int), parameter :: M_TRIM_THRESHOLD = -1
+   integer(c_int), parameter :: M_MMAP_THRESHOLD = -3
+   integer(c_int), parameter :: M_ARENA_MAX      = -8
 
 contains
 
@@ -95,8 +107,9 @@ contains
 
 
    subroutine blas_trim_os()
-      ! Request libc to return free arenas to the OS (pad=0 => trim all)
       integer(c_int) :: ret
+      if (.not.tuned) call blas_tune_malloc()
+      ! Request libc to return free arenas to the OS (pad=0 => trim all)
       ret = malloc_trim(0_c_size_t)
       last_trim = ret
       if (ret == 0) continue ! avoid unused warning when assertions off
@@ -107,5 +120,15 @@ contains
       integer(c_int) :: val
       val = last_trim
    end function blas_last_trim_result
+
+
+   subroutine blas_tune_malloc()
+      integer(c_int) :: rc
+      if (tuned) return
+      rc = mallopt(M_ARENA_MAX, 2_c_int)
+      rc = mallopt(M_TRIM_THRESHOLD, 0_c_int)
+      rc = mallopt(M_MMAP_THRESHOLD, 128*1024_c_int)
+      tuned = .true.
+   end subroutine blas_tune_malloc
 
 end module xtb_blas_runtime
