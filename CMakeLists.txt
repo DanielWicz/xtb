@@ -74,6 +74,15 @@ endif()
 find_package("LAPACK" REQUIRED)
 find_package("BLAS" REQUIRED)
 
+# Tag BLAS vendor to align runtime tuning/cleanup paths
+string(TOLOWER "${BLAS_LIBRARIES}" _blas_libs_lower)
+if(_blas_libs_lower MATCHES "mkl")
+  add_compile_definitions(WITH_MKL)
+endif()
+if(_blas_libs_lower MATCHES "openblas")
+  add_compile_definitions(WITH_OPENBLAS)
+endif()
+
 
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/include")
    file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")

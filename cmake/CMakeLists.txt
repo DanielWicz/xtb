@@ -46,7 +46,7 @@ install(
 
 # Compiler-specific configurations 
 if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
-  set(dialects "-fdefault-real-8 -fdefault-double-8 -ffree-line-length-none -fbacktrace")
+  set(dialects "-fdefault-real-8 -fdefault-double-8 -ffree-line-length-none -fbacktrace -cpp")
   set(bounds "-fbounds-check -ffpe-trap=invalid,zero,overflow")
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
   set(dialects "-axAVX2 -r8 -traceback")
