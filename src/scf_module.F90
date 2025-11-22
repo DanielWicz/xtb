@@ -71,7 +71,22 @@ module xtb_scf
       & 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, &
       & 1, 0, 0, 0, 0, 0]
 
+   !> Large work buffers are cached between SCF calls to avoid repeated
+   !> allocate/deallocate cycles that grow the heap in long geometry runs.
+   real(wp), allocatable, target, save :: dpint_ws(:, :, :)
+   real(wp), allocatable, target, save :: qpint_ws(:, :, :)
+
 contains
+
+subroutine ensure_scf_workspace(nao)
+   integer, intent(in) :: nao
+
+   if (.not.allocated(dpint_ws) .or. size(dpint_ws,2) /= nao) then
+      if (allocated(dpint_ws)) deallocate(dpint_ws, qpint_ws)
+      allocate(dpint_ws(3, nao, nao))
+      allocate(qpint_ws(6, nao, nao))
+   end if
+end subroutine ensure_scf_workspace
 
 subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       & egap, et, maxiter, prlevel, restart, grd, acc, energy, gradient, res)
@@ -158,7 +173,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    real(wp), allocatable :: djdL(:, :, :)
 !  AES stuff
    type(TxTBMultipole), allocatable :: aes
-   real(wp),allocatable  :: dpint(:,:,:),qpint(:,:,:)
+   real(wp),pointer      :: dpint(:,:,:),qpint(:,:,:)
    real(wp),allocatable  :: radcn(:) ! CBNEW
 
 ! ========================================================================
@@ -328,6 +343,12 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
          end select
       end if
    end if
+
+   call ensure_scf_workspace(basis%nao)
+   dpint => dpint_ws
+   qpint => qpint_ws
+   dpint = 0.0_wp
+   qpint = 0.0_wp
 
    allocate(H0(basis%nao*(basis%nao+1)/2), &
    &        H0_noovlp(basis%nao*(basis%nao+1)/2), &
@@ -939,8 +960,6 @@ contains
    subroutine cleanup_allocations()
       ! Explicitly release large temporaries to avoid heap growth across SCF calls
       call solver%destroy()
-      if (allocated(dpint))       deallocate(dpint)
-      if (allocated(qpint))       deallocate(qpint)
       if (allocated(H0))          deallocate(H0)
       if (allocated(H0_noovlp))   deallocate(H0_noovlp)
       if (allocated(S))           deallocate(S)
