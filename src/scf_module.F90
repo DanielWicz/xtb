@@ -975,6 +975,7 @@ contains
       if (allocated(djdr))        deallocate(djdr)
       if (allocated(djdtr))       deallocate(djdtr)
       if (allocated(djdL))        deallocate(djdL)
+      if (allocated(cn))          deallocate(cn)
       if (allocated(radcn))       deallocate(radcn)
       if (allocated(mdlst))       deallocate(mdlst)
       if (allocated(mqlst))       deallocate(mqlst)

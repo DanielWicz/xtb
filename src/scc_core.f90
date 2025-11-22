@@ -476,6 +476,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
+      call cleanup_scc()
       return
    endif
 
@@ -636,6 +637,31 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    jter = jter + min(iter,thisiter)
    fail = .not.converged
+
+   call cleanup_scc()
+
+contains
+
+   !> ensure all allocatable temporaries used in the SCC driver are released,
+   !> avoiding heap growth when the routine is called many times (e.g. during
+   !> geometry optimisation micro cycles).
+   subroutine cleanup_scc()
+
+      if (allocated(S_factorized)) deallocate(S_factorized)
+      if (allocated(vs))           deallocate(vs)
+      if (allocated(vd))           deallocate(vd)
+      if (allocated(vq))           deallocate(vq)
+      if (allocated(df))           deallocate(df)
+      if (allocated(u))            deallocate(u)
+      if (allocated(a))            deallocate(a)
+      if (allocated(dq))           deallocate(dq)
+      if (allocated(dqlast))       deallocate(dqlast)
+      if (allocated(qlast_in))     deallocate(qlast_in)
+      if (allocated(omega))        deallocate(omega)
+      if (allocated(q_in))         deallocate(q_in)
+      if (allocated(atomicShift))  deallocate(atomicShift)
+
+   end subroutine cleanup_scc
 
 end subroutine scc
 
