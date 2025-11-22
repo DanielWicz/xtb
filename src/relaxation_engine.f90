@@ -26,7 +26,7 @@ module xtb_relaxation_engine
    use xtb_optimizer, only : convergence_log, load_turbomole_log
    use xtb_bfgs
    use xtb_david2
-   use xtb_blas_runtime, only : blas_flush_buffers
+   use xtb_blas_runtime, only : blas_flush_buffers, blas_last_trim_result
    implicit none
    private :: wp
    !> precision of the rational function step (usually single instead of double)
@@ -1075,6 +1075,7 @@ subroutine lbfgs_relax &
 
       ! Release MKL/glibc caches after each geometry step to curb RSS growth
       call blas_flush_buffers()
+      if (pr) write(env%unit, memfmt) blas_last_trim_result()
 
       ! transform cartesian gradient in ANC coordinate system
       if (profile) call timer%measure(4)

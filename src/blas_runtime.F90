@@ -16,6 +16,7 @@ module xtb_blas_runtime
    public :: blas_global_cleanup
    public :: blas_flush_buffers
    public :: blas_trim_os
+   public :: blas_last_trim_result
 
 #ifdef WITH_OPENBLAS
    interface
@@ -50,6 +51,8 @@ module xtb_blas_runtime
       end function malloc_trim
    end interface
 #endif
+
+   integer(c_int) :: last_trim = -1
 
 contains
 
@@ -98,11 +101,19 @@ contains
       ! Request glibc to return free arenas to the OS (pad=0 => trim all)
       integer(c_int) :: ret
       ret = malloc_trim(0_c_size_t)
+      last_trim = ret
       if (ret == 0) continue ! avoid unused warning when assertions off
 #else
       ! Other libcs may not expose malloc_trim; nothing to do
+      last_trim = -1
       continue
 #endif
    end subroutine blas_trim_os
+
+
+   function blas_last_trim_result() result(val)
+      integer(c_int) :: val
+      val = last_trim
+   end function blas_last_trim_result
 
 end module xtb_blas_runtime
