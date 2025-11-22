@@ -7,7 +7,7 @@
 ! per thread and globally; we provide wrappers to flush them at exit.
 
 module xtb_blas_runtime
-   use, intrinsic :: iso_c_binding, only : c_int
+   use, intrinsic :: iso_c_binding, only : c_int, c_size_t
    implicit none
    private
 
@@ -15,6 +15,7 @@ module xtb_blas_runtime
    public :: blas_thread_cleanup
    public :: blas_global_cleanup
    public :: blas_flush_buffers
+   public :: blas_trim_os
 
 #ifdef WITH_OPENBLAS
    interface
@@ -37,6 +38,16 @@ module xtb_blas_runtime
 
       subroutine mkl_thread_free_buffers() bind(C, name='mkl_thread_free_buffers')
       end subroutine mkl_thread_free_buffers
+   end interface
+#endif
+
+#ifdef __GLIBC__
+   interface
+      function malloc_trim(pad) bind(C, name='malloc_trim')
+         import :: c_int, c_size_t
+         integer(c_int) :: malloc_trim
+         integer(c_size_t), value :: pad
+      end function malloc_trim
    end interface
 #endif
 
@@ -78,6 +89,20 @@ contains
 !$omp end parallel
       call blas_global_cleanup()
 #endif
+      call blas_trim_os()
    end subroutine blas_flush_buffers
+
+
+   subroutine blas_trim_os()
+#ifdef __GLIBC__
+      ! Request glibc to return free arenas to the OS (pad=0 => trim all)
+      integer(c_int) :: ret
+      ret = malloc_trim(0_c_size_t)
+      if (ret == 0) continue ! avoid unused warning when assertions off
+#else
+      ! Other libcs may not expose malloc_trim; nothing to do
+      continue
+#endif
+   end subroutine blas_trim_os
 
 end module xtb_blas_runtime
