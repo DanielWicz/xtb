@@ -29,7 +29,7 @@ module xtb_scc_core
    use xtb_xtb_dispersion
    use xtb_xtb_multipole
    use xtb_broyden
-   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta
+   use xtb_mctc_meminfo, only : memlog_enabled, log_memory_usage_delta, trim_memory
    use, intrinsic :: iso_fortran_env, only : int64
    implicit none
    private
@@ -680,6 +680,7 @@ contains
       if (allocated(omega))        deallocate(omega)
       if (allocated(q_in))         deallocate(q_in)
       if (allocated(atomicShift))  deallocate(atomicShift)
+      call trim_memory()
 
    end subroutine cleanup_scc
 
