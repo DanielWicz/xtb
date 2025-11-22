@@ -42,7 +42,6 @@ module xtb_blas_runtime
    end interface
 #endif
 
-#ifdef __GLIBC__
    interface
       function malloc_trim(pad) bind(C, name='malloc_trim')
          import :: c_int, c_size_t
@@ -50,7 +49,6 @@ module xtb_blas_runtime
          integer(c_size_t), value :: pad
       end function malloc_trim
    end interface
-#endif
 
    integer(c_int) :: last_trim = -1
 
@@ -97,17 +95,11 @@ contains
 
 
    subroutine blas_trim_os()
-#ifdef __GLIBC__
-      ! Request glibc to return free arenas to the OS (pad=0 => trim all)
+      ! Request libc to return free arenas to the OS (pad=0 => trim all)
       integer(c_int) :: ret
       ret = malloc_trim(0_c_size_t)
       last_trim = ret
       if (ret == 0) continue ! avoid unused warning when assertions off
-#else
-      ! Other libcs may not expose malloc_trim; nothing to do
-      last_trim = -1
-      continue
-#endif
    end subroutine blas_trim_os
 
 
