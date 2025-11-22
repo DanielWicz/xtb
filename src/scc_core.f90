@@ -20,6 +20,7 @@ module xtb_scc_core
    use xtb_mctc_accuracy, only : wp
    use xtb_mctc_la, only : contract
    use xtb_mctc_lapack, only : lapack_sygvd
+   use xtb_mctc_lapack_wrap, only : mctc_free_buffers
    use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver
    use xtb_type_environment, only : TEnvironment
@@ -623,6 +624,9 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    qq=q
 
 !  end of SCC convergence part
+
+   ! Release MKL buffers after each SCC iteration (after diagonalization)
+   call mctc_free_buffers()
 
 !! ------------------------------------------------------------------------
    if (econverged.and.qconverged) then
