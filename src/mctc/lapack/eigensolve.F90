@@ -230,9 +230,25 @@ subroutine mctc_dsygvd_factorized(self, env, amat, bmat_factorized, eval)
    real(dp), intent(in) :: bmat_factorized(:, :)
    real(dp), intent(out) :: eval(:)
    integer :: info, ldwork, liwork
+   real(dp), allocatable :: bfull(:, :), afeast(:, :)
 
    ldwork = size(self%dwork)
    liwork = size(self%iwork)
+
+   if (feast_available) then
+      allocate(bfull(self%n, self%n), source = 0.0_dp)
+      ! Reconstruct B = U^T * U (potrf delivered upper triangle)
+      bfull = matmul(transpose(bmat_factorized), bmat_factorized)
+
+      allocate(afeast, source = amat)
+      call feast_sygvd_dp(1, 'v', 'u', self%n, afeast, self%n, bfull, self%n, eval, info)
+      if (info == 0) then
+         amat = afeast
+         deallocate(bfull, afeast)
+         return
+      end if
+      deallocate(bfull, afeast)
+   end if
 
    CALL lapack_sygst( 1, 'u', self%n, amat, self%n, bmat_factorized, self%n, info )
 
