@@ -24,6 +24,7 @@ module xtb_api_interface
    use xtb_api_molecule
    use xtb_api_results
    use xtb_api_utils
+   use xtb_blas_runtime, only : blas_flush_buffers
    use xtb_gfnff_calculator, only : TGFFCalculator
    use xtb_scc_core, only : iniqshell
    use xtb_type_data, only : scc_results
@@ -135,6 +136,9 @@ subroutine singlepoint_api(venv, vmol, vcalc, vres) &
       ! singlepoint calculation
       call calc%ptr%singlepoint(env%ptr, mol%ptr, res%chk, env%verbosity, .true., &
          & res%energy, res%gradient, res%sigma, res%egap, spRes)
+
+      ! Ensure MKL fast memory is returned between sequential API calls
+      call blas_flush_buffers()
 
       ! invalidate cache for properties not produced in GFN-FF
       select type(gfnff => calc%ptr)
@@ -278,6 +282,7 @@ subroutine cpcmx_calc_api(venv, vmol, vcalc, vres) &
       ! Initial COSMO singlepoint calculation
       call calc%ptr%singlepoint(env%ptr, mol%ptr, res%chk, env%verbosity, .true., &
          & res%energy, res%gradient, res%sigma, res%egap, spRes)
+      call blas_flush_buffers()
 
       ! CPCM-X calculation
       call cpx%setup(env%ptr, calc%ptr%solvation%cpxsolvent)
@@ -288,6 +293,7 @@ subroutine cpcmx_calc_api(venv, vmol, vcalc, vres) &
       call generic_header(env%ptr%unit, "CPCM-X post-SCF solvation evaluation", 49, 10)
       call cpx_calc%ptr%singlepoint(env%ptr, mol%ptr, res%chk, env%verbosity, .false., &
          & energy_gas, res%gradient, res%sigma, res%egap, spRes)
+      call blas_flush_buffers()
 
 
       call cpx%calc_solv(env%ptr, calc%ptr%solvation%cpxsolvent, energy_gas, &
