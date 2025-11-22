@@ -29,6 +29,7 @@ module xtb_scc_core
    use xtb_xtb_dispersion
    use xtb_xtb_multipole
    use xtb_broyden
+   use xtb_blas_runtime, only : blas_flush_buffers
    implicit none
    private
 
@@ -633,6 +634,9 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 !! ------------------------------------------------------------------------
 
    enddo scc_iterator
+
+   ! Flush MKL caches and trim libc between SCC cycles to curb RSS growth
+   call blas_flush_buffers()
 
    jter = jter + min(iter,thisiter)
    fail = .not.converged
