@@ -74,6 +74,15 @@ endif()
 find_package("LAPACK" REQUIRED)
 find_package("BLAS" REQUIRED)
 
+# If we link against Intel MKL provide the preprocessor flag that enables
+# MKL-specific memory management (e.g. disabling fast MM and freeing thread
+# buffers between SCC calls).  This keeps parity with the Meson build.
+string(JOIN " " _xtb_blas_libs ${BLAS_LIBRARIES})
+string(JOIN " " _xtb_lapack_libs ${LAPACK_LIBRARIES})
+if(_xtb_blas_libs MATCHES "mkl" OR _xtb_lapack_libs MATCHES "mkl")
+  add_compile_definitions(WITH_MKL)
+endif()
+
 
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/include")
    file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")

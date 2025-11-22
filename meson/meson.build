@@ -155,10 +155,14 @@ if lapack_vendor == 'mkl'
   endif
   mkl_dep += cc.find_library('mkl_core')
   lib_deps += mkl_dep
+  # Enable MKL-specific memory management hooks in the code (see meminfo.F90)
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
 
 elif lapack_vendor == 'mkl-rt'
   mkl_dep = fc.find_library('mkl_rt')
   lib_deps += mkl_dep
+  # Enable MKL-specific memory management hooks in the code (see meminfo.F90)
+  add_project_arguments('-DWITH_MKL', language: 'fortran')
 
 elif lapack_vendor == 'openblas'
   openblas_dep = dependency('openblas', required: false)
