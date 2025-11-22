@@ -20,7 +20,7 @@
 module xtb_mctc_lapack_eigensolve
    use xtb_mctc_accuracy, only : sp, dp
    use xtb_mctc_blas_level3, only : blas_trsm
-   use xtb_mctc_lapack_geneigval, only : lapack_sygvd
+   use xtb_mctc_lapack_geneigval, only : lapack_sygv
    use xtb_mctc_lapack_stdeigval, only : lapack_syevd
    use xtb_mctc_lapack_gst, only : lapack_sygst
    use xtb_mctc_lapack_trf, only : mctc_potrf
@@ -66,7 +66,7 @@ contains
 
 
 subroutine initSEigenSolver(self, env, bmat)
-   character(len=*), parameter :: source = 'mctc_lapack_sygvd'
+   character(len=*), parameter :: source = 'mctc_lapack_sygv'
    class(TEigenSolver), intent(out) :: self
    type(TEnvironment), intent(inout) :: env
    real(sp), intent(in) :: bmat(:, :)
@@ -84,7 +84,7 @@ end subroutine initSEigenSolver
 
 
 subroutine initDEigenSolver(self, env, bmat)
-   character(len=*), parameter :: source = 'mctc_lapack_sygvd'
+   character(len=*), parameter :: source = 'mctc_lapack_sygv'
    class(TEigenSolver), intent(out) :: self
    type(TEnvironment), intent(inout) :: env
    real(dp), intent(in) :: bmat(:, :)
@@ -120,20 +120,19 @@ end subroutine initDEigenSolver
 
 
 subroutine mctc_ssygvd(self, env, amat, bmat, eval)
-   character(len=*), parameter :: source = 'mctc_lapack_sygvd'
+   character(len=*), parameter :: source = 'mctc_lapack_sygv'
    class(TEigenSolver), intent(inout) :: self
    type(TEnvironment), intent(inout) :: env
    real(sp), intent(inout) :: amat(:, :)
    real(sp), intent(in) :: bmat(:, :)
    real(sp), intent(out) :: eval(:)
-   integer :: info, lswork, liwork
+   integer :: info, lswork
 
    self%sbmat(:, :) = bmat
 
    lswork = size(self%swork)
-   liwork = size(self%iwork)
-   call lapack_sygvd(1, 'v', 'u', self%n, amat, self%n, self%sbmat, self%n, eval, &
-      & self%swork, lswork, self%iwork, liwork, info)
+   call lapack_sygv(1, 'v', 'u', self%n, amat, self%n, self%sbmat, self%n, eval, &
+      & self%swork, lswork, info)
 
    if (info /= 0) then
       call env%error("Failed to solve eigenvalue problem", source)
@@ -143,13 +142,13 @@ end subroutine mctc_ssygvd
 
 
 subroutine mctc_dsygvd(self, env, amat, bmat, eval)
-   character(len=*), parameter :: source = 'mctc_lapack_sygvd'
+   character(len=*), parameter :: source = 'mctc_lapack_sygv'
    class(TEigenSolver), intent(inout) :: self
    type(TEnvironment), intent(inout) :: env
    real(dp), intent(inout) :: amat(:, :)
    real(dp), intent(in) :: bmat(:, :)
    real(dp), intent(out) :: eval(:)
-   integer :: info, ldwork, liwork
+   integer :: info, ldwork
 #ifdef USE_CUSOLVER
    integer :: istat
 #endif
@@ -172,9 +171,8 @@ subroutine mctc_dsygvd(self, env, amat, bmat, eval)
    end if
 #else
    ldwork = size(self%dwork)
-   liwork = size(self%iwork)
-   call lapack_sygvd(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, &
-      & self%dwork, ldwork, self%iwork, liwork, info)
+   call lapack_sygv(1, 'v', 'u', self%n, amat, self%n, self%dbmat, self%n, eval, &
+      & self%dwork, ldwork, info)
 #endif
 
    if (info /= 0) then

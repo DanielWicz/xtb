@@ -32,7 +32,7 @@
 !----------------------------------------------------------------------------------------------
 module xtb_lineardep
    use xtb_mctc_accuracy, only : wp
-   use xtb_mctc_lapack, only : lapack_sygvd, lapack_syev
+   use xtb_mctc_lapack, only : lapack_sygv, lapack_syev
    use xtb_setparam, only: set
    use xtb_mctc_blas, only : blas_gemm, blas_symm
    implicit none
