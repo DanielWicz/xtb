@@ -53,6 +53,7 @@ list(APPEND srcs
   "${dir}/linalg.f90"
   "${dir}/lapack.f90"
   "${dir}/blas.f90"
+  "${dir}/meminfo.f90"
   "${dir}/mctc_init.F90"
   "${dir}/error.f90"
   "${dir}/signal.c"
