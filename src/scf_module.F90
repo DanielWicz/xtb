@@ -938,6 +938,7 @@ contains
 
    subroutine cleanup_allocations()
       ! Explicitly release large temporaries to avoid heap growth across SCF calls
+      call solver%destroy()
       if (allocated(dpint))       deallocate(dpint)
       if (allocated(qpint))       deallocate(qpint)
       if (allocated(H0))          deallocate(H0)

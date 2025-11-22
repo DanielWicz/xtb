@@ -53,6 +53,7 @@ module xtb_mctc_lapack_eigensolve
       generic :: fact_solve => sfact_solve, dfact_solve
       procedure :: sfact_solve => mctc_ssygvd_factorized
       procedure :: dfact_solve => mctc_dsygvd_factorized
+      procedure :: destroy => mctc_destroy_solver
    end type TEigenSolver
 
 
@@ -63,6 +64,17 @@ module xtb_mctc_lapack_eigensolve
 
 
 contains
+subroutine mctc_destroy_solver(self)
+   class(TEigenSolver), intent(inout) :: self
+#ifdef USE_CUSOLVER
+   ! no device buffers held here; nothing special to do
+#endif
+   if (allocated(self%iwork)) deallocate(self%iwork)
+   if (allocated(self%swork)) deallocate(self%swork)
+   if (allocated(self%sbmat)) deallocate(self%sbmat)
+   if (allocated(self%dwork)) deallocate(self%dwork)
+   if (allocated(self%dbmat)) deallocate(self%dbmat)
+end subroutine mctc_destroy_solver
 
 
 subroutine initSEigenSolver(self, env, bmat)
