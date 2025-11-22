@@ -306,6 +306,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(solvation)) then
       if (mol%npbc > 0) then
          call env%error("Solvation not available with PBC", source)
+         call cleanup_allocations()
          return
       end if
       call solvation%update(env, mol%at, mol%xyz)
@@ -348,6 +349,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if(wfn%nel.ne.0) then
       if (wfn%nel > 2*basis%nao) then
          call env%error("Not enough basis functions for filling orbitals", source)
+         call cleanup_allocations()
          return
       end if
       call occu(basis%nao,wfn%nel,wfn%nopen,wfn%ihomoa,wfn%ihomob,wfn%focca,wfn%foccb)
@@ -440,6 +442,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    call env%check(exitRun)
    if (exitRun) then
       call env%error("Setup of Coulomb evaluator failed", source)
+      call cleanup_allocations()
       return
    end if
 
@@ -512,6 +515,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(xtbData%halogen)) then
       if (nxb > 0 .and. mol%npbc > 0) then
          call env%error("Halogen bond correction not available with PBC", source)
+         call cleanup_allocations()
          return
       end if
       call xbpot(xtbData%halogen,mol%n,mol%at,mol%xyz,xblist,nxb,&
@@ -575,6 +579,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(xtbData%multipole)) then
       if (mol%npbc > 0) then
          call env%error("Multipoles not available with PBC", source)
+         call cleanup_allocations()
          return
       end if
       allocate(aes)
@@ -648,6 +653,7 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    call env%check(exitRun)
    if (exitRun) then
       call env%error("Self consistent charge iterator terminated", source)
+      call cleanup_allocations()
       return
    end if
    if (memlog) call log_memory_usage_delta(env%unit, 'scf post-scc', mem_last)
@@ -926,7 +932,64 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (memlog) call log_memory_usage_delta(env%unit, 'scf end', mem_last)
 
 ! ========================================================================
-   if (profile) call timer%deallocate
+   call cleanup_allocations()
+
+contains
+
+   subroutine cleanup_allocations()
+      ! Explicitly release large temporaries to avoid heap growth across SCF calls
+      if (allocated(dpint))       deallocate(dpint)
+      if (allocated(qpint))       deallocate(qpint)
+      if (allocated(H0))          deallocate(H0)
+      if (allocated(H0_noovlp))   deallocate(H0_noovlp)
+      if (allocated(S))           deallocate(S)
+      if (allocated(S12))         deallocate(S12)
+      if (allocated(X))           deallocate(X)
+      if (allocated(Xcao))        deallocate(Xcao)
+      if (allocated(temp))        deallocate(temp)
+      if (allocated(tmp))         deallocate(tmp)
+      if (allocated(ves))         deallocate(ves)
+      if (allocated(vs))          deallocate(vs)
+      if (allocated(vd))          deallocate(vd)
+      if (allocated(vq))          deallocate(vq)
+      if (allocated(dhdcn))       deallocate(dhdcn)
+      if (allocated(zsh))         deallocate(zsh)
+      if (allocated(qq))          deallocate(qq)
+      if (allocated(qlmom))       deallocate(qlmom)
+      if (allocated(cm5))         deallocate(cm5)
+      if (allocated(cm5a))        deallocate(cm5a)
+      if (allocated(dcm5a))       deallocate(dcm5a)
+      if (allocated(selfEnergy))  deallocate(selfEnergy)
+      if (allocated(dSEdcn))      deallocate(dSEdcn)
+      if (allocated(shellShift))  deallocate(shellShift)
+      if (allocated(Pa))          deallocate(Pa)
+      if (allocated(Pb))          deallocate(Pb)
+      if (allocated(Pew))         deallocate(Pew)
+      if (allocated(H))           deallocate(H)
+      if (allocated(idnum))       deallocate(idnum)
+      if (allocated(Vpc))         deallocate(Vpc)
+      if (allocated(trans))       deallocate(trans)
+      if (allocated(dcndr))       deallocate(dcndr)
+      if (allocated(dcndL))       deallocate(dcndL)
+      if (allocated(djdr))        deallocate(djdr)
+      if (allocated(djdtr))       deallocate(djdtr)
+      if (allocated(djdL))        deallocate(djdL)
+      if (allocated(radcn))       deallocate(radcn)
+      if (allocated(mdlst))       deallocate(mdlst)
+      if (allocated(mqlst))       deallocate(mqlst)
+      if (allocated(matlist))     deallocate(matlist)
+      if (allocated(xblist))      deallocate(xblist)
+      if (allocated(sqrab))       deallocate(sqrab)
+      if (allocated(aw))          deallocate(aw)
+      if (allocated(c6ab))        deallocate(c6ab)
+      if (allocated(rvol))        deallocate(rvol)
+      if (allocated(scD4))        deallocate(scD4)
+      if (allocated(aes))         deallocate(aes)
+      if (allocated(latp%trans))  deallocate(latp%trans)
+      if (allocated(latp%dist2))  deallocate(latp%dist2)
+      if (memlog) call log_memory_usage_delta(env%unit, 'scf cleanup', mem_last)
+      if (profile) call timer%deallocate
+   end subroutine cleanup_allocations
 
 end subroutine scf
 
