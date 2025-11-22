@@ -37,6 +37,9 @@ module xtb_type_wignerseitzcell
       !> Generate Wigner-Seitz cell
       procedure :: generate
 
+      !> Free Wigner-Seitz cell
+      procedure :: free
+
    end type TWignerSeitzCell
 
 
@@ -51,6 +54,19 @@ module xtb_type_wignerseitzcell
 
 
 contains
+
+
+!> Free Wigner-Seitz cell
+subroutine free(self)
+   class(TWignerSeitzCell), intent(inout) :: self
+   if (allocated(self%neighs)) deallocate(self%neighs)
+   if (allocated(self%iNeigh)) deallocate(self%iNeigh)
+   if (allocated(self%dist2)) deallocate(self%dist2)
+   if (allocated(self%weight)) deallocate(self%weight)
+   if (allocated(self%image)) deallocate(self%image)
+   if (allocated(self%coords)) deallocate(self%coords)
+   if (allocated(self%trans)) deallocate(self%trans)
+end subroutine free
 
 
 !> Initialize Wigner-Seitz cell

@@ -47,6 +47,9 @@ module xtb_xtb_coulomb
       !> Get energy from isotropic electrostatics
       procedure :: getEnergy
 
+      !> Free isotropic electrostatics
+      procedure :: free
+
    end type TxTBCoulomb
 
 
@@ -59,7 +62,16 @@ module xtb_xtb_coulomb
 contains
 
 
-!> Initialize isotropic electrostatics from parametrisation data
+!> Free isotropic electrostatics
+subroutine free(self)
+   class(TxTBCoulomb), intent(inout) :: self
+   if (allocated(self%jmat)) deallocate(self%jmat)
+   if (allocated(self%shift)) deallocate(self%shift)
+   call self%thirdOrder%free()
+end subroutine free
+
+
+!> Initialize isotropic electrostatics
 subroutine initCoulomb(self, input, nshell, num)
 
    !> Instance of the isotropic electrostatics

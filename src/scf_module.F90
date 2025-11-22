@@ -298,6 +298,10 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
 !  initialize the GBSA module (GBSA works with CM5 charges)
    if (allocated(solvation)) then
       if (mol%npbc > 0) then
+         call solver%free()
+         call ies%free()
+         call coulomb%free()
+         call latp%free()
          call env%error("Solvation not available with PBC", source)
          return
       end if
@@ -505,6 +509,9 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(xtbData%halogen)) then
       if (nxb > 0 .and. mol%npbc > 0) then
          call solver%free()
+         call ies%free()
+         call coulomb%free()
+         call latp%free()
          call env%error("Halogen bond correction not available with PBC", source)
          return
       end if
@@ -568,6 +575,9 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(xtbData%multipole)) then
       if (mol%npbc > 0) then
          call solver%free()
+         call ies%free()
+         call coulomb%free()
+         call latp%free()
          call env%error("Multipoles not available with PBC", source)
          return
       end if
@@ -680,6 +690,9 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       if (allocated(scD4)) deallocate(scD4)
       if (allocated(aes)) deallocate(aes)
       if (allocated(radcn)) deallocate(radcn)
+      call ies%free()
+      call coulomb%free()
+      call latp%free()
       call env%error("Self consistent charge iterator terminated", source)
       return
    end if
@@ -884,6 +897,9 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       if (allocated(scD4)) deallocate(scD4)
       if (allocated(aes)) deallocate(aes)
       if (allocated(radcn)) deallocate(radcn)
+      call ies%free()
+      call coulomb%free()
+      call latp%free()
       call env%error("Self consistent charge iterator did not converge", source)
    end if
 
@@ -1034,6 +1050,9 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    if (allocated(scD4)) deallocate(scD4)
    if (allocated(aes)) deallocate(aes)
    if (allocated(radcn)) deallocate(radcn)
+   call ies%free()
+   call coulomb%free()
+   call latp%free()
 
    if (profile) call timer%deallocate
 

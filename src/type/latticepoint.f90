@@ -72,6 +72,9 @@ module xtb_type_latticepoint
       !> Generate lattice points
       procedure :: generate
 
+      !> Free lattice points
+      procedure :: free
+
    end type TLatticePoint
 
 
@@ -83,6 +86,14 @@ module xtb_type_latticepoint
 
 
 contains
+
+
+!> Free lattice points
+subroutine free(self)
+   class(TLatticePoint), intent(inout) :: self
+   if (allocated(self%trans)) deallocate(self%trans)
+   if (allocated(self%dist2)) deallocate(self%dist2)
+end subroutine free
 
 
 !> Initializes lattice point generator

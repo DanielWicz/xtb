@@ -42,6 +42,9 @@ module xtb_xtb_thirdorder
       !> Get energy from third order contribution
       procedure :: getEnergy
 
+      !> Free third order electrostatics
+      procedure :: free
+
    end type TThirdOrder
 
 
@@ -52,6 +55,14 @@ module xtb_xtb_thirdorder
 
 
 contains
+
+
+!> Free third order electrostatics
+subroutine free(self)
+   class(TThirdOrder), intent(inout) :: self
+   if (allocated(self%atomicGam)) deallocate(self%atomicGam)
+   if (allocated(self%shellGam)) deallocate(self%shellGam)
+end subroutine free
 
 
 !> Initialize third order electrostatics

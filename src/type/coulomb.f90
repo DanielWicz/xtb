@@ -86,9 +86,13 @@ module xtb_type_coulomb
       !> Returns derivatives of Coulomb matrix
       procedure :: getCoulombDerivs
 
+      !> Free Coulomb evaluator
+      procedure :: free
+
    end type TCoulomb
 
 
+   !> Initialize isotropic electrostatics
    interface init
       module procedure :: initFromMolecule
       module procedure :: initCoulomb
@@ -96,6 +100,18 @@ module xtb_type_coulomb
 
 
 contains
+
+
+!> Free Coulomb evaluator
+subroutine free(self)
+   class(TCoulomb), intent(inout) :: self
+   if (allocated(self%itbl)) deallocate(self%itbl)
+   if (allocated(self%rTrans)) deallocate(self%rTrans)
+   if (allocated(self%gTrans)) deallocate(self%gTrans)
+   call self%rLatPoint%free()
+   call self%gLatPoint%free()
+   call self%wsCell%free()
+end subroutine free
 
 
 subroutine initFromMolecule(self, env, mol, num, nshell, alpha, tolerance)

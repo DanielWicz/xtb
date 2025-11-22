@@ -71,6 +71,9 @@ module xtb_coulomb_klopmanohno
       !> Returns derivatives of Coulomb matrix
       procedure :: getCoulombDerivs
 
+      !> Free Klopman-Ohno evaluator
+      procedure :: free
+
    end type TKlopmanOhno
 
 
@@ -98,6 +101,14 @@ module xtb_coulomb_klopmanohno
 
 
 contains
+
+
+!> Free Klopman-Ohno evaluator
+subroutine free(self)
+   class(TKlopmanOhno), intent(inout) :: self
+   if (allocated(self%hardness)) deallocate(self%hardness)
+   call self%TCoulomb%free()
+end subroutine free
 
 
 subroutine initFromMolecule(self, env, mol, gav, hardness, gExp, num, nshell, &
