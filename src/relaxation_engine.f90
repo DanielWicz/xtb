@@ -883,6 +883,8 @@ subroutine lbfgs_step(iter,memory,nvar,gradient,glast,displacement, &
    enddo
 
    displacement = -d
+
+   deallocate(q, d, a)
 end subroutine lbfgs_step
 
 !> backend implementation of the low memory BFGS algorithm, this implementation

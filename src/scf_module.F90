@@ -372,12 +372,6 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
       end if
    end if
 
-   call ensure_scf_workspace(basis%nao)
-   dpint => dpint_ws
-   qpint => qpint_ws
-   dpint = 0.0_wp
-   qpint = 0.0_wp
-
    allocate(H0(basis%nao*(basis%nao+1)/2), &
    &        H0_noovlp(basis%nao*(basis%nao+1)/2), &
    &        S(basis%nao,basis%nao),tmp(basis%nao), &
@@ -1081,6 +1075,9 @@ contains
       if (allocated(aes))         deallocate(aes)
       if (allocated(latp%trans))  deallocate(latp%trans)
       if (allocated(latp%dist2))  deallocate(latp%dist2)
+      if (associated(dpint))      deallocate(dpint)
+      if (associated(qpint))      deallocate(qpint)
+      nullify(dpint, qpint)
       if (memlog) call log_memory_usage_delta(env%unit, 'scf cleanup', mem_last)
       call log_scf_arrays('after cleanup')
       if (profile) call timer%deallocate
