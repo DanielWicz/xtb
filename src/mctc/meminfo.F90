@@ -45,11 +45,26 @@ contains
 !> One-time memory backend setup (currently disables MKL fast memory manager
 !> which otherwise hoards large thread-local buffers across SCF cycles).
 subroutine init_memory_management()
+#ifdef __GLIBC__
+   use iso_c_binding, only : c_int, c_char
+   interface
+      integer(c_int) function c_setenv(name, value, overwrite) bind(C,name="setenv")
+         import :: c_int, c_char
+         character(c_char), dimension(*) :: name
+         character(c_char), dimension(*) :: value
+         integer(c_int), value :: overwrite
+      end function c_setenv
+   end interface
+#endif
 #ifdef WITH_MKL
    if (.not. mkl_fastmm_disabled) then
       call mkl_disable_fast_mm()
       mkl_fastmm_disabled = .true.
    end if
+#endif
+#ifdef __GLIBC__
+   ! Limit the number of glibc arenas to curb per-thread heap growth
+   call c_setenv('MALLOC_ARENA_MAX'C, '1'C, 0_c_int)
 #endif
 end subroutine init_memory_management
 
@@ -150,8 +165,12 @@ subroutine trim_memory()
 #endif
 #ifdef WITH_MKL
    ! release internal MKL thread buffers that otherwise accumulate across
-   ! repeated SCF/geometry steps when using the Intel/oneMKL backend
-   call mkl_thread_free_buffers()
+   ! repeated SCF/geometry steps when using the Intel/oneMKL backend.
+   ! mkl_thread_free_buffers only clears caches for the calling thread, so
+   ! invoke it on the whole OpenMP team to drop worker-thread scratch space.
+   !$omp parallel
+      call mkl_thread_free_buffers()
+   !$omp end parallel
    call mkl_free_buffers()
 #endif
    ierr = c_malloc_trim(0_c_size_t)
