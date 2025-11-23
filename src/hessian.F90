@@ -89,6 +89,7 @@ subroutine numhess( &
    integer  :: nread,kend,lowmode
    integer  :: nonfrozh
    integer  :: fixmode
+   logical  :: lbhess
    integer, allocatable :: indx(:),izero(:)
 
 !$ integer  :: nproc
@@ -122,11 +123,15 @@ subroutine numhess( &
    n3=3*mol%n
    call res%allocate(mol%n)
    res%n3true = n3-3*freezeset%n
+   lbhess = (set%runtyp.eq.p_run_bhess)
 
-   allocate(hss(n3*(n3+1)/2),hsb(n3*(n3+1)/2),h(n3,n3),htb(n3,n3),hbias(n3,n3), &
+   allocate(hss(n3*(n3+1)/2),h(n3,n3), &
       & gl(3,mol%n),isqm(n3),xyzsave(3,mol%n),dipd(3,n3), amass_amu(n3), &
       & indx(mol%n), &
-      & freq_scal(n3),fc_tb(n3),fc_bias(n3),amass_au(n3), h_dummy(n3,n3), izero(n3))
+      & freq_scal(n3),fc_tb(n3),amass_au(n3), h_dummy(n3,n3), izero(n3))
+   if (lbhess) then
+      allocate(htb(n3,n3),hbias(n3,n3),hsb(n3*(n3+1)/2),fc_bias(n3))
+   end if
 
    if (set%elprop == p_elprop_alpha) then
       allocate(dalphadr(6,n3), source = 0.0_wp)
@@ -176,8 +181,10 @@ subroutine numhess( &
    calc%accuracy=set%accu_hess ! set SCC accuracy for numerical Hessian !
 
    h = 0.0_wp
-   htb = 0.0_wp
-   hbias = 0.0_wp
+   if (lbhess) then
+      htb = 0.0_wp
+      hbias = 0.0_wp
+   end if
 
 !! ========================================================================
 !  Hessian part -----------------------------------------------------------
@@ -248,9 +255,9 @@ subroutine numhess( &
 !  Hessian done -----------------------------------------------------------
 !! ========================================================================
 
-   if (set%runtyp.eq.p_run_bhess) call numhess_rmsd(env,mol,hbias)
+   if (lbhess) call numhess_rmsd(env,mol,hbias)
 
-   if(set%mode_extrun .eq. p_ext_turbomole .AND. set%runtyp.eq.p_run_bhess) then 
+   if(set%mode_extrun .eq. p_ext_turbomole .AND. lbhess) then 
         h = h + hbias !h is biased
    end if
 
@@ -330,7 +337,7 @@ subroutine numhess( &
       enddo
    enddo
    ! same for bhess run
-   if (set%runtyp.eq.p_run_bhess) then
+   if (lbhess) then
       k=0
       do i=1,n3
          do j=1,i
@@ -343,7 +350,7 @@ subroutine numhess( &
    if(.not.res%linear)then ! projection does not work for linear mol.
       fixmode = 0 ! no fixing
       if (fixset%n > 0) fixmode = -1 ! fixing
-      if (set%runtyp.eq.p_run_bhess) then
+      if (lbhess) then
          call trproj(mol%n,n3,mol%xyz,hsb,.false.,fixmode,res%freq,1) ! freq is dummy
       end if
       call trproj(mol%n,n3,mol%xyz,hss,.false.,fixmode,res%freq,1) ! freq is dummy
@@ -355,7 +362,7 @@ subroutine numhess( &
    call wrhess(n3,hss,hname)
 
    ! non mass weigthed biased Hessian in hsb
-   if (set%runtyp .eq. p_run_bhess) then
+   if (lbhess) then
       hname = 'hessian_sph'
       write (env%unit, '(a)')
       write (env%unit, '("writing file <",a,">.")') hname
@@ -372,7 +379,7 @@ subroutine numhess( &
       enddo
    enddo
    ! same for bhess run
-   if (set%runtyp.eq.p_run_bhess) then
+   if (lbhess) then
       k=0
       do i=1,n3
          do j=1,i
@@ -382,8 +389,10 @@ subroutine numhess( &
          enddo
       enddo
    end if
+   deallocate(hss)
+   if (allocated(hsb)) deallocate(hsb)
    ! calcualte htb without RMSD bias
-   if (set%runtyp.eq.p_run_bhess) htb=res%hess-hbias
+   if (lbhess) htb=res%hess-hbias
    ! diag
    lwork  = 1 + 6*n3 + 2*n3**2
    allocate(aux(lwork))
@@ -393,11 +402,13 @@ subroutine numhess( &
       return
    end if
 
-   if (set%runtyp.eq.p_run_bhess) then
+   if (lbhess) then
       call rescale_freq(n3,htb,res%hess,hbias,res%freq,fc_tb,fc_bias,freq_scal)
    else
       freq_scal(1:n3) = 1.0_wp
    end if 
+   if (allocated(htb))   deallocate(htb)
+   if (allocated(hbias)) deallocate(hbias)
 
    write(env%unit,'(a)')
    if(res%linear)then
