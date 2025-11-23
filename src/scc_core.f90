@@ -17,7 +17,7 @@
 
 !> general functions for core functionalities of the SCC
 module xtb_scc_core
-   use xtb_mctc_accuracy, only : wp
+   use xtb_mctc_accuracy, only : wp, sp
    use xtb_mctc_la, only : contract
    use xtb_mctc_lapack, only : lapack_sygvd
    use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
@@ -1183,22 +1183,15 @@ subroutine dmat(ndim,focc,C,P)
    real(wp),allocatable :: Ptmp(:,:)
 
    allocate(Ptmp(ndim,ndim))
-   ! acc enter data create(Ptmp(:,:)) copyin(C(:, :), focc(:), P(:, :))
-   ! acc kernels default(present)
    Ptmp = 0.0_wp
-   ! acc end kernels
 
-   ! acc parallel
-   ! acc loop gang collapse(2)
    do m=1,ndim
       do i=1,ndim
          Ptmp(i,m)=C(i,m)*focc(m)
       enddo
    enddo
-   ! acc end parallel
-   ! acc update host(Ptmp)
+
    call mctc_gemm(C, Ptmp, P, transb='t')
-   ! acc exit data copyout(P(:,:)) delete(C(:,:), focc(:), Ptmp(:, :))
 
    deallocate(Ptmp)
 
@@ -1213,12 +1206,19 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2)
    real(wp),intent(out) :: wb (n,n)
    integer, intent(in)  :: fila2(:,:)
 
+   real(sp),allocatable :: P_sp(:,:), S_sp(:,:), Ptmp_sp(:,:)
    real(wp),allocatable :: Ptmp(:,:)
    real(wp) xsum,rab
    integer i,j,k,m
 
-   allocate(Ptmp(ndim,ndim))
-   call blas_gemm('N','N',ndim,ndim,ndim,1.0d0,P,ndim,S,ndim,0.0d0,Ptmp,ndim)
+   allocate(P_sp(ndim,ndim), S_sp(ndim,ndim), Ptmp_sp(ndim,ndim), Ptmp(ndim,ndim))
+
+   P_sp   = real(P, kind=sp)
+   S_sp   = real(S, kind=sp)
+   Ptmp_sp = 0.0_sp
+
+   call blas_gemm('N','N',ndim,ndim,ndim,1.0_sp,P_sp,ndim,S_sp,ndim,0.0_sp,Ptmp_sp,ndim)
+   call blas_gemm('N','N',ndim,ndim,ndim,1.0_wp,P,ndim,S,ndim,0.0_wp,Ptmp,ndim)
    wb = 0
    !$omp parallel do default(none) &
    !$omp private(i,j,k,m,xsum,rab) &
@@ -1240,7 +1240,7 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2)
          wb(j,i) = xsum
       enddo
    enddo
-   deallocate(Ptmp)
+   deallocate(P_sp, S_sp, Ptmp_sp, Ptmp)
 
 end subroutine get_wiberg
 
@@ -1254,18 +1254,28 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2)
    real(wp),intent(out) :: wb (n,n)
    integer, intent(in)  :: fila2(:,:)
 
-   real(wp),allocatable :: Ptmp_a(:,:)
-   real(wp),allocatable :: Ptmp_b(:,:)
+   real(sp),allocatable :: Ptmp_a_sp(:,:), Ptmp_b_sp(:,:), P_sp(:,:), S_sp(:,:)
+   real(wp),allocatable :: Ptmp_a(:,:), Ptmp_b(:,:)
    real(wp) xsum,rab
    integer i,j,k,m
 
-   allocate(Ptmp_a(ndim,ndim))
-   allocate(Ptmp_b(ndim,ndim))
+   allocate(Ptmp_a_sp(ndim,ndim), Ptmp_b_sp(ndim,ndim), P_sp(ndim,ndim), S_sp(ndim,ndim))
+   allocate(Ptmp_a(ndim,ndim), Ptmp_b(ndim,ndim))
+
+   P_sp = real(Pa, kind=sp)
+   S_sp = real(S, kind=sp)
+
+   Ptmp_a_sp = 0.0_sp
+   Ptmp_b_sp = 0.0_sp
 
    ! P^(alpha) * S !
-   call blas_gemm('N','N',ndim,ndim,ndim,1.0_wp,Pa,ndim,S,ndim,0.0_wp,Ptmp_a,ndim)
-   
+   call blas_gemm('N','N',ndim,ndim,ndim,1.0_sp,P_sp,ndim,S_sp,ndim,0.0_sp,Ptmp_a_sp,ndim)
+
    ! P^(beta) * S !
+   P_sp = real(Pb, kind=sp)
+   call blas_gemm('N','N',ndim,ndim,ndim,1.0_sp,P_sp,ndim,S_sp,ndim,0.0_sp,Ptmp_b_sp,ndim)
+
+   call blas_gemm('N','N',ndim,ndim,ndim,1.0_wp,Pa,ndim,S,ndim,0.0_wp,Ptmp_a,ndim)
    call blas_gemm('N','N',ndim,ndim,ndim,1.0_wp,Pb,ndim,S,ndim,0.0_wp,Ptmp_b,ndim)
    
    wb = 0
@@ -1289,8 +1299,10 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2)
          wb(j,i) = 2.0_wp*xsum
       enddo
    enddo
-   deallocate(Ptmp_a)
-   deallocate(Ptmp_b)
+   deallocate(Ptmp_a_sp)
+   deallocate(Ptmp_b_sp)
+   deallocate(P_sp, S_sp)
+   deallocate(Ptmp_a, Ptmp_b)
 
 end subroutine get_unrestricted_wiberg
 
