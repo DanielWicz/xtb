@@ -78,7 +78,18 @@ end subroutine newGFFNeighbourList
 !> Finalizer to ensure neighbour list memory is released on scope exit
 subroutine finalizeGFFNeighbourList(self)
    type(TGFFNeighbourList), intent(inout) :: self
-   call freeGFFNeighbourList(self)
+   if (allocated(self%q))        deallocate(self%q)
+   if (allocated(self%hbrefgeo)) deallocate(self%hbrefgeo)
+   if (allocated(self%hblist1))  deallocate(self%hblist1)
+   if (allocated(self%hblist2))  deallocate(self%hblist2)
+   if (allocated(self%hblist3))  deallocate(self%hblist3)
+   if (allocated(self%hbe1))     deallocate(self%hbe1)
+   if (allocated(self%hbe2))     deallocate(self%hbe2)
+   if (allocated(self%hbe3))     deallocate(self%hbe3)
+   self%initialized = .false.
+   self%nhb1 = 0
+   self%nhb2 = 0
+   self%nxb = 0
 end subroutine finalizeGFFNeighbourList
 
 end module xtb_gfnff_neighbourlist
