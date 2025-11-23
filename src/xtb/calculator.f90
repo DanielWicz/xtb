@@ -347,6 +347,10 @@ subroutine singlepoint(self, env, mol, chk, printlevel, restart, &
       write(env%unit,'(a)')
    endif
 
+   ! release transient solvation helpers created for this singlepoint
+   if (allocated(solvation)) deallocate(solvation)
+   if (allocated(gbsa))      deallocate(gbsa)
+
 end subroutine singlepoint
 
 

@@ -572,6 +572,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    if (allocated(dipgrad_model)) deallocate(dipgrad_model)
    if (allocated(jacobian)) deallocate(jacobian)
    if (allocated(idx2)) deallocate(idx2)
+   if (allocated(list_model)) deallocate(list_model)
 
 end subroutine hessian
 
