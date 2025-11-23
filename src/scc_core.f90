@@ -17,7 +17,7 @@
 
 !> general functions for core functionalities of the SCC
 module xtb_scc_core
-   use xtb_mctc_accuracy, only : wp
+   use xtb_mctc_accuracy, only : wp, sp
    use xtb_mctc_la, only : contract
    use xtb_mctc_lapack, only : lapack_sygvd
    use xtb_mctc_lapack_wrap, only : mctc_free_buffers
@@ -366,6 +366,8 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 !! ------------------------------------------------------------------------
 !  Factorized overlap to avoid multiple factorizations
    real(wp), allocatable :: S_factorized(:,:)
+   real(sp), allocatable :: S_factorized_sp(:,:), H_sp(:,:), emo_sp(:), P_sp(:,:), focc_sp(:)
+   logical :: use_sp
 !! ------------------------------------------------------------------------
 !  results of the SCC iterator
    real(wp),intent(out)   :: eel
@@ -412,6 +414,14 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
    call mctc_potrf(env, S_factorized)
+
+   use_sp = (scfconv .ge. 1.0e-5_wp)
+   if (use_sp) then
+      allocate(S_factorized_sp(ndim, ndim), H_sp(ndim, ndim), &
+         & P_sp(ndim, ndim), emo_sp(ndim), focc_sp(ndim), source = 0.0_sp )
+      S_factorized_sp = real(S, sp)
+      call mctc_potrf(env, S_factorized_sp)
+   end if
    call mctc_free_buffers()
 
    converged = .false.
@@ -474,7 +484,15 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    !call solve(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail)
 
-   call solver%fact_solve(env, H, S_factorized, emo)
+   if (use_sp .and. .not. lastdiag) then
+      H_sp = real(H, sp)
+      call solver%fact_solve(env, H_sp, S_factorized_sp, emo_sp)
+      emo = real(emo_sp, wp)
+      H = real(H_sp, wp)
+   else
+      call solver%fact_solve(env, H, S_factorized, emo)
+   end if
+
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
@@ -512,7 +530,13 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    end if
 
    ! density matrix
-   call dmat(ndim,focc,H,P)
+   if (use_sp .and. .not. lastdiag) then
+      focc_sp = real(focc, sp)
+      call dmat_sp(ndim,focc_sp,H_sp,P_sp)
+      P = real(P_sp, wp)
+   else
+      call dmat(ndim,focc,H,P)
+   end if
 
    ! new q
    call mpopsh(n,ndim,nshell,ao2sh,S,P,qsh)
@@ -642,6 +666,11 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    jter = jter + min(iter,thisiter)
    fail = .not.converged
 
+   if (allocated(S_factorized_sp)) deallocate(S_factorized_sp)
+   if (allocated(H_sp)) deallocate(H_sp)
+   if (allocated(P_sp)) deallocate(P_sp)
+   if (allocated(emo_sp)) deallocate(emo_sp)
+   if (allocated(focc_sp)) deallocate(focc_sp)
    if (allocated(S_factorized)) deallocate(S_factorized)
    if (allocated(vs)) deallocate(vs)
    if (allocated(vd)) deallocate(vd)
@@ -1227,6 +1256,36 @@ subroutine dmat(ndim,focc,C,P)
    deallocate(Ptmp)
 
 end subroutine dmat
+
+subroutine dmat_sp(ndim,focc,C,P)
+   integer, intent(in)  :: ndim
+   real(sp),intent(in)  :: focc(:)
+   real(sp),intent(in)  :: C(:,:)
+   real(sp),intent(out) :: P(:,:)
+   integer :: i,m
+   real(sp),allocatable :: Ptmp(:,:)
+
+   allocate(Ptmp(ndim,ndim))
+   ! acc enter data create(Ptmp(:,:)) copyin(C(:, :), focc(:), P(:, :))
+   ! acc kernels default(present)
+   Ptmp = 0.0_sp
+   ! acc end kernels
+
+   ! acc parallel
+   ! acc loop gang collapse(2)
+   do m=1,ndim
+      do i=1,ndim
+         Ptmp(i,m)=C(i,m)*focc(m)
+      enddo
+   enddo
+   ! acc end parallel
+   ! acc update host(Ptmp)
+   call mctc_gemm(C, Ptmp, P, transb='t')
+   ! acc exit data copyout(P(:,:)) delete(C(:,:), focc(:), Ptmp(:, :))
+
+   deallocate(Ptmp)
+
+end subroutine dmat_sp
 
 ! Reference: I. Mayer, "Simple Theorems, Proofs, and Derivations in Quantum Chemistry", formula (7.35)
 subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2)

@@ -149,6 +149,9 @@ subroutine mctc_ssygvd(self, env, amat, bmat, eval)
    real(sp), intent(out) :: eval(:)
    integer :: info, lswork, liwork
 
+   if (.not. allocated(self%swork)) allocate(self%swork(1 + 6*self%n + 2*self%n**2))
+   if (.not. allocated(self%iwork)) allocate(self%iwork(3 + 5*self%n))
+
    self%sbmat(:, :) = bmat
 
    lswork = size(self%swork)
@@ -213,6 +216,9 @@ subroutine mctc_ssygvd_factorized(self, env, amat, bmat_factorized, eval)
    real(sp), intent(in) :: bmat_factorized(:, :)
    real(sp), intent(out) :: eval(:)
    integer :: info, lswork, liwork
+
+   if (.not. allocated(self%swork)) allocate(self%swork(1 + 6*self%n + 2*self%n**2))
+   if (.not. allocated(self%iwork)) allocate(self%iwork(3 + 5*self%n))
 
    lswork = size(self%swork)
    liwork = size(self%iwork)
