@@ -89,9 +89,7 @@ subroutine numhess( &
    integer  :: nread,kend,lowmode
    integer  :: nonfrozh
    integer  :: fixmode
-   integer, allocatable :: nb(:,:)
-   integer, allocatable :: indx(:),molvec(:),izero(:)
-   real(wp),allocatable :: bond(:,:)
+   integer, allocatable :: indx(:),izero(:)
 
 !$ integer  :: nproc
 
@@ -108,7 +106,6 @@ subroutine numhess( &
    real(wp),allocatable :: isqm(:)
    real(wp),allocatable :: gl  (:,:)
    real(wp),allocatable :: xyzsave(:,:)
-   real(wp),allocatable :: pold(:)
    real(wp),allocatable :: dipd(:,:), dalphadr(:,:), dalphadq(:,:)
    real(wp),allocatable :: amass_au(:), amass_amu(:)
    real(wp) :: asq, gamsq
@@ -128,7 +125,7 @@ subroutine numhess( &
 
    allocate(hss(n3*(n3+1)/2),hsb(n3*(n3+1)/2),h(n3,n3),htb(n3,n3),hbias(n3,n3), &
       & gl(3,mol%n),isqm(n3),xyzsave(3,mol%n),dipd(3,n3), amass_amu(n3), &
-      & pold(n3),nb(20,mol%n),indx(mol%n),molvec(mol%n),bond(mol%n,mol%n), &
+      & indx(mol%n), &
       & freq_scal(n3),fc_tb(n3),fc_bias(n3),amass_au(n3), h_dummy(n3,n3), izero(n3))
 
    if (set%elprop == p_elprop_alpha) then
@@ -210,7 +207,6 @@ subroutine numhess( &
 
       h = 0.0_wp
       dipd = 0.0_wp
-      pold = 0.0_wp
       call calc%hessian(env, mol, chk0, indx(:nonfrozh), step, h, dipd)
 
    else
@@ -219,7 +215,6 @@ subroutine numhess( &
 !! ------------------------------------------------------------------------
       h = 0.0_wp
       dipd = 0.0_wp
-      pold = 0.0_wp
       indx = [(i, i = 1, mol%n)]
       call calc%hessian(env, mol, chk0, indx, step, h, dipd)
 
