@@ -95,7 +95,6 @@ subroutine numhess( &
 !$ integer  :: nproc
 
    real(wp),allocatable :: h (:,:), h_dummy(:,:)
-   real(wp),allocatable :: htb (:,:)
    real(wp),allocatable :: hbias (:,:)
    real(wp),allocatable :: hss(:)
    real(wp),allocatable :: hsb(:)
@@ -130,7 +129,7 @@ subroutine numhess( &
       & indx(mol%n), &
       & freq_scal(n3),fc_tb(n3),amass_au(n3), h_dummy(n3,n3), izero(n3))
    if (lbhess) then
-      allocate(htb(n3,n3),hbias(n3,n3),hsb(n3*(n3+1)/2),fc_bias(n3))
+      allocate(hbias(n3,n3),hsb(n3*(n3+1)/2),fc_bias(n3))
    end if
 
    if (set%elprop == p_elprop_alpha) then
@@ -181,10 +180,7 @@ subroutine numhess( &
    calc%accuracy=set%accu_hess ! set SCC accuracy for numerical Hessian !
 
    h = 0.0_wp
-   if (lbhess) then
-      htb = 0.0_wp
-      hbias = 0.0_wp
-   end if
+   if (lbhess) hbias = 0.0_wp
 
 !! ========================================================================
 !  Hessian part -----------------------------------------------------------
@@ -391,8 +387,6 @@ subroutine numhess( &
    end if
    deallocate(hss)
    if (allocated(hsb)) deallocate(hsb)
-   ! calcualte htb without RMSD bias
-   if (lbhess) htb=res%hess-hbias
    ! diag
    lwork  = 1 + 6*n3 + 2*n3**2
    allocate(aux(lwork))
@@ -403,11 +397,10 @@ subroutine numhess( &
    end if
 
    if (lbhess) then
-      call rescale_freq(n3,htb,res%hess,hbias,res%freq,fc_tb,fc_bias,freq_scal)
+      call rescale_freq(n3,res%hess,hbias,res%freq,fc_tb,fc_bias,freq_scal)
    else
       freq_scal(1:n3) = 1.0_wp
    end if 
-   if (allocated(htb))   deallocate(htb)
    if (allocated(hbias)) deallocate(hbias)
 
    write(env%unit,'(a)')
@@ -738,10 +731,9 @@ end subroutine distort
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-subroutine rescale_freq(n3,htb,hess,hbias,freq,fc_tb,fc_bias,freq_scal)
+subroutine rescale_freq(n3,hess,hbias,freq,fc_tb,fc_bias,freq_scal)
    use xtb_mctc_blas
    implicit none
-   real(wp),intent(in) :: htb (n3,n3)
    real(wp),intent(in) :: hess(n3,n3)
    real(wp),intent(in) :: hbias(n3,n3)
    real(wp),intent(in) :: freq(n3)
@@ -749,6 +741,7 @@ subroutine rescale_freq(n3,htb,hess,hbias,freq,fc_tb,fc_bias,freq_scal)
    real(wp), intent(out) :: freq_scal(n3) 
    real(wp),allocatable :: v(:)
    real(wp),allocatable :: fc_tmp(:)
+   real(wp) :: tmp_hess
    real(wp), parameter :: alp1=1.27_wp, alp2=1.5e-4_wp
    integer, intent(in) :: n3
    integer :: j
@@ -757,10 +750,11 @@ subroutine rescale_freq(n3,htb,hess,hbias,freq,fc_tb,fc_bias,freq_scal)
    ! calculate fc_tb and fc_bias
    do j=1,n3
       v(1:n3) = hess(1:n3,j) ! modes
-      call mctc_gemv(htb,v,fc_tmp)
-      fc_tb(j) = mctc_dot(v,fc_tmp)
+      call mctc_gemv(hess,v,fc_tmp)
+      tmp_hess = mctc_dot(v,fc_tmp)
       call mctc_gemv(hbias,v,fc_tmp)
       fc_bias(j) = mctc_dot(v,fc_tmp)
+      fc_tb(j) = tmp_hess - fc_bias(j)
       if (abs(freq(j)) .gt. 1.0e-6_wp) then
          freq_scal(j) = sqrt( (fc_tb(j)+alp2) / ( (fc_tb(j)+alp2) +  alp1*fc_bias(j) ) )
          if (fc_tb(j) .lt. 0.0_wp .and. fc_bias(j) .ne. 0.0_wp) then

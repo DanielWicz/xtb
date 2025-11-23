@@ -206,7 +206,7 @@ contains
 
          allocate (v(n3), fc_tmp(n3), freq_scal(n3), fc_tb(n3), fc_bias(n3))
 
-         call rescale_freq(n3, htb, hessian, hessian_sph, freq, fc_tb, fc_bias, freq_scal)
+         call rescale_freq(n3, hessian, hessian_sph, freq, fc_tb, fc_bias, freq_scal)
 
          ! scale frequencies and convert now to atomic units
          do j = 1, n3
