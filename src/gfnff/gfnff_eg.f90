@@ -949,6 +949,30 @@ endif
 
    call mctc_gemv(xyz, nlist%q, res_gff%dipole)
 
+   ! ------------------------------------------------------------------
+   ! release all temporary work arrays (covers periodic and non-periodic paths)
+   if (allocated(sqrab))          deallocate(sqrab)
+   if (allocated(srab))           deallocate(srab)
+   if (allocated(qtmp))           deallocate(qtmp)
+   if (allocated(g5tmp))          deallocate(g5tmp)
+   if (allocated(eeqtmp))         deallocate(eeqtmp)
+   if (allocated(d3list))         deallocate(d3list)
+   if (allocated(dcn))            deallocate(dcn)
+   if (allocated(cn))             deallocate(cn)
+   if (allocated(dcndr))          deallocate(dcndr)
+   if (allocated(dcndL))          deallocate(dcndL)
+   if (allocated(hb_dcn))         deallocate(hb_dcn)
+   if (allocated(hb_cn))          deallocate(hb_cn)
+   if (allocated(dhbcndL))        deallocate(dhbcndL)
+   if (allocated(grab0))          deallocate(grab0)
+   if (allocated(rab0))           deallocate(rab0)
+   if (allocated(rabdcn))         deallocate(rabdcn)
+   if (allocated(dEdcn))          deallocate(dEdcn)
+   if (allocated(considered_ABH)) deallocate(considered_ABH)
+   if (allocated(rinf))           deallocate(rinf)
+   if (allocated(gTrans))         deallocate(gTrans)
+   if (allocated(rTrans))         deallocate(rTrans)
+
 end subroutine gfnff_eg
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
