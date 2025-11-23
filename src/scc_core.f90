@@ -17,10 +17,10 @@
 
 !> general functions for core functionalities of the SCC
 module xtb_scc_core
-   use xtb_mctc_accuracy, only : wp
+   use xtb_mctc_accuracy, only : wp, sp
    use xtb_mctc_la, only : contract
-   use xtb_mctc_lapack, only : lapack_sygvd
-   use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
+   use xtb_mctc_lapack, only : lapack_sygvd, lapack_potrf, lapack_syevd
+   use xtb_mctc_blas, only : blas_gemm, blas_trsm, mctc_symv, mctc_gemm
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver
    use xtb_type_environment, only : TEnvironment
    use xtb_type_solvation, only : TSolvation
@@ -364,7 +364,10 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    real(wp),allocatable   :: omega(:)
 !! ------------------------------------------------------------------------
 !  Factorized overlap to avoid multiple factorizations
-   real(wp), allocatable :: S_factorized(:,:)
+   real(sp), allocatable :: S_factorized_sp(:,:)
+   real(sp), allocatable :: H_sp(:,:)
+   real(sp), allocatable :: emo_sp(:)
+   real(wp), allocatable :: S_factorized_wp(:,:)
 !! ------------------------------------------------------------------------
 !  results of the SCC iterator
    real(wp),intent(out)   :: eel
@@ -407,10 +410,19 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    logical  :: converged
    logical  :: econverged
    logical  :: qconverged
+   ! refinement scratch (FP64 accumulation)
+   real(wp), allocatable :: C_wp(:,:), SC(:,:), O(:,:), HC(:,:), Aproj(:,:), work(:)
+   integer, allocatable :: iwork(:)
+   integer :: info, lwork, liwork
 
-   allocate(S_factorized(ndim, ndim), source = 0.0_wp )
-   S_factorized = S
-   call mctc_potrf(env, S_factorized)
+   allocate(S_factorized_wp(ndim, ndim))
+   S_factorized_wp = S
+   call mctc_potrf(env, S_factorized_wp)
+
+   allocate(S_factorized_sp(ndim, ndim))
+   S_factorized_sp = real(S_factorized_wp, kind=sp)
+   deallocate(S_factorized_wp)
+   allocate(H_sp(ndim, ndim), emo_sp(ndim), source = 0.0_sp)
 
    converged = .false.
    lastdiag = .false.
@@ -472,12 +484,63 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    !call solve(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail)
 
-   call solver%fact_solve(env, H, S_factorized, emo)
+   H_sp = real(H, kind=sp)
+   H_sp = 0.5_sp*(H_sp + transpose(H_sp))
+   call solver%fact_solve(env, H_sp, S_factorized_sp, emo_sp)
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
       return
    endif
+
+   allocate(C_wp(ndim,ndim))
+   C_wp = real(H_sp, kind=wp)
+
+   allocate(SC(ndim,ndim))
+   call blas_gemm('N','N', ndim, ndim, ndim, 1.0_wp, S, ndim, C_wp, ndim, 0.0_wp, SC, ndim)
+
+   allocate(O(ndim,ndim))
+   call blas_gemm('T','N', ndim, ndim, ndim, 1.0_wp, C_wp, ndim, SC, ndim, 0.0_wp, O, ndim)
+   call lapack_potrf('U', ndim, O, ndim, info)
+   if (info /= 0) then
+      fail = .true.
+      return
+   end if
+   call blas_trsm('R','U','N','N', ndim, ndim, 1.0_wp, O, ndim, C_wp, ndim)
+
+   allocate(HC(ndim,ndim))
+   call blas_gemm('N','N', ndim, ndim, ndim, 1.0_wp, H, ndim, C_wp, ndim, 0.0_wp, HC, ndim)
+
+   ! projected Rayleigh-Ritz refinement in FP64
+   allocate(Aproj(ndim,ndim))
+   call blas_gemm('T','N', ndim, ndim, ndim, 1.0_wp, C_wp, ndim, HC, ndim, 0.0_wp, Aproj, ndim)
+   Aproj = 0.5_wp*(Aproj + transpose(Aproj))
+
+   allocate(work(1), iwork(1))
+   call lapack_syevd('V','U', ndim, Aproj, ndim, emo, work, -1, iwork, -1, info)
+   lwork  = int(work(1))
+   liwork = iwork(1)
+   deallocate(work, iwork)
+   allocate(work(lwork), iwork(liwork))
+   call lapack_syevd('V','U', ndim, Aproj, ndim, emo, work, lwork, iwork, liwork, info)
+   if (info /= 0) then
+      fail = .true.
+      return
+   end if
+
+   call blas_gemm('N','N', ndim, ndim, ndim, 1.0_wp, C_wp, ndim, Aproj, ndim, 0.0_wp, HC, ndim)
+   C_wp = HC
+
+   call blas_gemm('N','N', ndim, ndim, ndim, 1.0_wp, H, ndim, C_wp, ndim, 0.0_wp, HC, ndim)
+
+   do j = 1, ndim
+      emo(j) = dot_product(C_wp(:, j), HC(:, j))
+   end do
+
+   H = C_wp
+
+   deallocate(work, iwork)
+   deallocate(Aproj, HC, O, SC, C_wp)
 
    if(ihomo+1.le.ndim.and.ihomo.ge.1)egap=emo(ihomo+1)-emo(ihomo)
    ! automatic reset to small value
@@ -1183,22 +1246,16 @@ subroutine dmat(ndim,focc,C,P)
    real(wp),allocatable :: Ptmp(:,:)
 
    allocate(Ptmp(ndim,ndim))
-   ! acc enter data create(Ptmp(:,:)) copyin(C(:, :), focc(:), P(:, :))
-   ! acc kernels default(present)
    Ptmp = 0.0_wp
-   ! acc end kernels
 
-   ! acc parallel
-   ! acc loop gang collapse(2)
    do m=1,ndim
       do i=1,ndim
          Ptmp(i,m)=C(i,m)*focc(m)
       enddo
    enddo
-   ! acc end parallel
-   ! acc update host(Ptmp)
+
    call mctc_gemm(C, Ptmp, P, transb='t')
-   ! acc exit data copyout(P(:,:)) delete(C(:,:), focc(:), Ptmp(:, :))
+   P = 0.5_wp*(P + transpose(P))
 
    deallocate(Ptmp)
 

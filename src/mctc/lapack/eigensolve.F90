@@ -109,8 +109,14 @@ subroutine initDEigenSolver(self, env, bmat)
    allocate(self%dwork(lwork))
 #else
    allocate(self%dwork(1 + 6*self%n + 2*self%n**2))
-   allocate(self%iwork(3 + 5*self%n))
 #endif
+   allocate(self%iwork(3 + 5*self%n))
+   allocate(self%swork(1 + 6*self%n + 2*self%n**2))
+   allocate(self%sbmat(self%n, self%n))
+
+   self%sbmat = real(bmat, sp)
+   ! Check for Cholesky factorisation in single precision for FP32 eigensolves
+   call mctc_potrf(env, self%sbmat)
 
    self%dbmat = bmat
    ! Check for Cholesky factorisation
