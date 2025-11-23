@@ -568,6 +568,11 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       dipgrad(:, ic+1:ic+3) = dipgrad(:, ic+1:ic+3) + dipgrad_model(:, im+1:im+3)
    end do
 
+   if (allocated(hess_model)) deallocate(hess_model)
+   if (allocated(dipgrad_model)) deallocate(dipgrad_model)
+   if (allocated(jacobian)) deallocate(jacobian)
+   if (allocated(idx2)) deallocate(idx2)
+
 end subroutine hessian
 
 subroutine writeInfo(self, unit, mol)
