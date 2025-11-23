@@ -816,6 +816,10 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    integer, allocatable :: iwork(:),ifail(:)
    real(wp),allocatable :: aux  (:)
    real(wp) w0,w1,t0,t1
+   real(sp), allocatable :: H_sp(:,:), S_sp(:,:), e_sp(:), work_sp(:)
+   integer, allocatable :: iwork_sp(:)
+   real(wp), allocatable :: Href(:,:), Sref(:,:), Hv(:), Sv(:)
+   real(wp) :: max_res, tol_res
 
    real(sp),allocatable :: H4(:,:)
    real(sp),allocatable :: S4(:,:)
@@ -917,6 +921,10 @@ subroutine solve(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    integer, allocatable :: iwork(:),ifail(:)
    real(wp),allocatable :: aux  (:)
    real(wp) w0,w1,t0,t1
+   real(sp), allocatable :: H_sp(:,:), S_sp(:,:), e_sp(:), work_sp(:)
+   integer, allocatable :: iwork_sp(:)
+   real(wp), allocatable :: Href(:,:), Sref(:,:), Hv(:), Sv(:)
+   real(wp) :: max_res, tol_res
 
    fail =.false.
 
@@ -925,23 +933,67 @@ subroutine solve(full,ndim,ihomo,acc,H,S,X,P,e,fail)
 !                                                     call timing(t0,w0)
 !     if(ndim.gt.0)then
 !     USE DIAG IN NON-ORTHORGONAL BASIS
-      allocate (aux(1),iwork(1),ifail(ndim))
-      P = s
-      call lapack_sygvd(1,'v','u',ndim,h,ndim,p,ndim,e,aux, &!workspace query
-     &           -1,iwork,liwork,info)
-      lwork=int(aux(1))
-      liwork=iwork(1)
-      deallocate(aux,iwork)
-      allocate (aux(lwork),iwork(liwork))              !do it
-      call lapack_sygvd(1,'v','u',ndim,h,ndim,p,ndim,e,aux, &
-     &           lwork,iwork,liwork,info)
-      !write(*,*)'SYGVD INFO', info
-      if(info.ne.0) then
-         fail=.true.
-         return
+      tol_res = 1.0e-7_wp
+      allocate(Href(ndim,ndim), Sref(ndim,ndim))
+      Href = H
+      Sref = S
+
+      ! single precision path
+      allocate(H_sp(ndim,ndim), S_sp(ndim,ndim), e_sp(ndim))
+      H_sp = real(Href, kind=sp)
+      S_sp = real(Sref, kind=sp)
+      allocate(work_sp(1), iwork_sp(1), ifail(ndim))
+      call lapack_sygvd(1,'v','u',ndim,H_sp,ndim,S_sp,ndim,e_sp,work_sp, &
+     &                 -1,iwork_sp,liwork,info)
+      lwork = int(work_sp(1))
+      liwork = iwork_sp(1)
+      deallocate(work_sp, iwork_sp)
+      allocate(work_sp(lwork), iwork_sp(liwork))
+      call lapack_sygvd(1,'v','u',ndim,H_sp,ndim,S_sp,ndim,e_sp,work_sp, &
+     &                 lwork,iwork_sp,liwork,info)
+
+      if(info.eq.0) then
+         X = real(H_sp, kind=wp)
+         e = real(e_sp, kind=wp)
+
+         ! residual check in double; fallback to fp64 diag if needed
+         allocate(Hv(ndim), Sv(ndim))
+         max_res = 0.0_wp
+         do i=1,ndim
+            Hv = matmul(Href, X(:,i))
+            Sv = matmul(Sref, X(:,i))
+            max_res = max(max_res, norm2(Hv - e(i)*Sv))
+         enddo
+         deallocate(Hv,Sv)
+      else
+         max_res = tol_res + 1.0_wp
       endif
-      X = H ! save
-      deallocate(aux,iwork,ifail)
+
+      deallocate(H_sp,S_sp,e_sp,work_sp,iwork_sp,ifail)
+
+      if(max_res.gt.tol_res) then
+         ! fallback to fp64 diagonalization for accuracy
+         allocate (aux(1),iwork(1),ifail(ndim))
+         P = Sref
+         call lapack_sygvd(1,'v','u',ndim,Href,ndim,P,ndim,e,aux, &!workspace query
+        &           -1,iwork,liwork,info)
+         lwork=int(aux(1))
+         liwork=iwork(1)
+         deallocate(aux,iwork)
+         allocate (aux(lwork),iwork(liwork))              !do it
+         call lapack_sygvd(1,'v','u',ndim,Href,ndim,P,ndim,e,aux, &
+        &           lwork,iwork,liwork,info)
+         if(info.ne.0) then
+            fail=.true.
+            deallocate(aux,iwork,ifail,Href,Sref)
+            return
+         endif
+         X = Href
+         deallocate(aux,iwork,ifail)
+      endif
+
+      H = X ! save eigenvectors to output
+      deallocate(Href,Sref)
 
 !     else
 !        USE DIAG IN ORTHOGONAL BASIS WITH X=S^-1/2 TRAFO
