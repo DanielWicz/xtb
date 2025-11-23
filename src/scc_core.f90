@@ -821,42 +821,71 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    real(wp), allocatable :: Href(:,:), Sref(:,:), Hv(:), Sv(:)
    real(wp) :: max_res, tol_res
 
-   real(sp),allocatable :: H4(:,:)
-   real(sp),allocatable :: S4(:,:)
-   real(sp),allocatable :: X4(:,:)
-   real(sp),allocatable :: P4(:,:)
-   real(sp),allocatable :: e4(:)
-   real(sp),allocatable :: aux4(:)
-
-
-   allocate(H4(ndim,ndim),S4(ndim,ndim))
-   allocate(X4(ndim,ndim),P4(ndim,ndim),e4(ndim))
-
-   H4 = H
-   S4 = S
-
    fail =.false.
 !  standard first full diag call
    if(full) then
 !                                                     call timing(t0,w0)
 !     if(ndim.gt.0)then
 !     USE DIAG IN NON-ORTHORGONAL BASIS
-      allocate (aux4(1),iwork(1),ifail(ndim))
-      P4 = s4
-      call lapack_sygvd(1,'v','u',ndim,h4,ndim,p4,ndim,e4,aux4, &!workspace query
-     &           -1,iwork,liwork,info)
-      lwork=int(aux4(1))
-      liwork=iwork(1)
-      deallocate(aux4,iwork)
-      allocate (aux4(lwork),iwork(liwork))              !do it
-      call lapack_sygvd(1,'v','u',ndim,h4,ndim,p4,ndim,e4,aux4, &
-     &           lwork,iwork,liwork,info)
-      if(info.ne.0) then
-         fail=.true.
-         return
+      tol_res = 1.0e-7_wp
+      allocate(Href(ndim,ndim), Sref(ndim,ndim))
+      Href = H
+      Sref = S
+
+      allocate(H_sp(ndim,ndim), S_sp(ndim,ndim), e_sp(ndim))
+      H_sp = real(Href, kind=sp)
+      S_sp = real(Sref, kind=sp)
+      allocate(work_sp(1), iwork_sp(1), ifail(ndim))
+      call lapack_sygvd(1,'v','u',ndim,H_sp,ndim,S_sp,ndim,e_sp,work_sp, &
+     &                 -1,iwork_sp,liwork,info)
+      lwork = int(work_sp(1))
+      liwork = iwork_sp(1)
+      deallocate(work_sp, iwork_sp)
+      allocate(work_sp(lwork), iwork_sp(liwork))
+      call lapack_sygvd(1,'v','u',ndim,H_sp,ndim,S_sp,ndim,e_sp,work_sp, &
+     &                 lwork,iwork_sp,liwork,info)
+
+      if(info.eq.0) then
+         X = real(H_sp, kind=wp)
+         e = real(e_sp, kind=wp)
+         P = Sref
+
+         allocate(Hv(ndim), Sv(ndim))
+         max_res = 0.0_wp
+         do i=1,ndim
+            Hv = matmul(Href, X(:,i))
+            Sv = matmul(Sref, X(:,i))
+            max_res = max(max_res, norm2(Hv - e(i)*Sv))
+         enddo
+         deallocate(Hv,Sv)
+      else
+         max_res = tol_res + 1.0_wp
       endif
-      X4 = H4 ! save
-      deallocate(aux4,iwork,ifail)
+
+      deallocate(H_sp,S_sp,e_sp,work_sp,iwork_sp,ifail)
+
+      if(max_res.gt.tol_res) then
+         allocate (aux(1),iwork(1),ifail(ndim))
+         P = Sref
+         call lapack_sygvd(1,'v','u',ndim,Href,ndim,P,ndim,e,aux, &!workspace query
+        &           -1,iwork,liwork,info)
+         lwork=int(aux(1))
+         liwork=iwork(1)
+         deallocate(aux,iwork)
+         allocate (aux(lwork),iwork(liwork))              !do it
+         call lapack_sygvd(1,'v','u',ndim,Href,ndim,P,ndim,e,aux, &
+        &           lwork,iwork,liwork,info)
+         if(info.ne.0) then
+            fail=.true.
+            deallocate(aux,iwork,ifail,Href,Sref)
+            return
+         endif
+         X = Href
+         deallocate(aux,iwork,ifail)
+      endif
+
+      H = X
+      deallocate(Href,Sref)
 
 !     else
 !        USE DIAG IN ORTHOGONAL BASIS WITH X=S^-1/2 TRAFO
@@ -874,7 +903,7 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
 !                                                     call timing(t1,w1)
 !                                    call prtime(6,t1-t0,w1-w0,'dsygvd')
 
-   else
+!   else
 !                                                     call timing(t0,w0)
 !     go to MO basis using trafo(X) from first iteration (=full diag)
 !      call blas_gemm('N','N',ndim,ndim,ndim,1.d0,H4,ndim,X4,ndim,0.d0,P4,ndim)
@@ -890,14 +919,10 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
 !      call blas_gemm('N','N',ndim,ndim,ndim,1.d0,X4,ndim,H4,ndim,0.d0,P4,ndim)
 !     save and output MO matrix in AO basis
 !      H4 = P4
+   else
+      fail = .true.
+      return
    endif
-
-   H = H4
-   P = P4
-   X = X4
-   e = e4
-
-   deallocate(e4,P4,X4,S4,H4)
 
 end subroutine solve4
 
