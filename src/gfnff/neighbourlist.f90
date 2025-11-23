@@ -21,7 +21,7 @@ module xtb_gfnff_neighbourlist
    implicit none
    private
 
-   public :: TGFFNeighbourList, new
+   public :: TGFFNeighbourList, new, freeGFFNeighbourList
 
 
    type :: TGFFNeighbourList
@@ -72,5 +72,19 @@ subroutine newGFFNeighbourList(self, n, nhb1, nhb2, nxb)
    allocate(self%hbe3(self%nxb), source=0.0_wp)
 end subroutine newGFFNeighbourList
 
+!> Release all neighbour list allocations
+subroutine freeGFFNeighbourList(self)
+   type(TGFFNeighbourList), intent(inout) :: self
+   if (allocated(self%q))        deallocate(self%q)
+   if (allocated(self%hbrefgeo)) deallocate(self%hbrefgeo)
+   if (allocated(self%hblist1))  deallocate(self%hblist1)
+   if (allocated(self%hblist2))  deallocate(self%hblist2)
+   if (allocated(self%hblist3))  deallocate(self%hblist3)
+   if (allocated(self%hbe1))     deallocate(self%hbe1)
+   if (allocated(self%hbe2))     deallocate(self%hbe2)
+   if (allocated(self%hbe3))     deallocate(self%hbe3)
+   self%initialized = .false.
+   self%nhb1 = 0; self%nhb2 = 0; self%nxb = 0
+end subroutine freeGFFNeighbourList
 
 end module xtb_gfnff_neighbourlist
