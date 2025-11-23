@@ -42,6 +42,8 @@ module xtb_gfnff_neighbourlist
       !> XBs
       integer, allocatable :: hblist3(:, :)
       real(wp), allocatable :: hbe3(:)
+   contains
+      final :: finalizeGFFNeighbourList
    end type TGFFNeighbourList
 
    interface new
@@ -86,5 +88,11 @@ subroutine freeGFFNeighbourList(self)
    self%initialized = .false.
    self%nhb1 = 0; self%nhb2 = 0; self%nxb = 0
 end subroutine freeGFFNeighbourList
+
+!> Finalizer to ensure neighbour list memory is released on scope exit
+subroutine finalizeGFFNeighbourList(self)
+   type(TGFFNeighbourList), intent(inout) :: self
+   call freeGFFNeighbourList(self)
+end subroutine finalizeGFFNeighbourList
 
 end module xtb_gfnff_neighbourlist

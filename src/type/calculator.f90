@@ -114,6 +114,7 @@ contains
 
 !> Evaluate hessian by finite difference for all atoms
 subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
+!$   use omp_lib, only : omp_get_max_threads, omp_get_thread_num
    character(len=*), parameter :: source = "hessian_numdiff_numdiff2"
    !> Single point calculator
    class(TCalculator), intent(inout) :: self
@@ -135,20 +136,31 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp), intent(inout), optional :: polgrad(:, :)
 
    integer :: iat, jat, kat, ic, jc, ii, jj
+   integer :: nthreads, tid
    real(wp) :: er, el, dr(3), dl(3), sr(3, 3), sl(3, 3), egap, step2
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1
-   real(wp), allocatable :: gr(:, :), gl(:, :)
+   real(wp), pointer :: gr(:, :), gl(:, :)
+   real(wp), allocatable, target :: gr_work(:, :, :), gl_work(:, :, :)
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
 
-   !$omp parallel if(self%threadsafe) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0) &
-   !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
-   !$omp& t1, w1)
+   ! Pre-allocate one work buffer per thread to avoid leaks with thread-local allocatables
+   nthreads = 1
+!$ if (self%threadsafe) nthreads = omp_get_max_threads()
+   allocate(gr_work(3, mol0%n, nthreads), gl_work(3, mol0%n, nthreads), source = 0.0_wp)
 
-   allocate(gr(3, mol0%n), gl(3, mol0%n))
+   !$omp parallel if(self%threadsafe) default(none) &
+   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, gr_work, gl_work, nthreads) &
+   !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
+   !$omp& t1, w1, tid)
+
+   tid = 1
+!$ if (self%threadsafe) tid = omp_get_thread_num() + 1
+   if (tid > nthreads) tid = nthreads
+   gr => gr_work(:, :, tid)
+   gl => gl_work(:, :, tid)
 
    !$omp do collapse(2) schedule(runtime)
    do kat = 1, size(list)
@@ -195,9 +207,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
       end do
    end do
-   ! release thread-local work arrays
-   deallocate(gr, gl)
    !$omp end parallel
+
+   deallocate(gr_work, gl_work)
 end subroutine hessian
 
 subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient, sigma, egap, dipole, alpha)
