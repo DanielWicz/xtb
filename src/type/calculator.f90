@@ -195,6 +195,8 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
       end do
    end do
+   ! release thread-local work arrays
+   deallocate(gr, gl)
    !$omp end parallel
 end subroutine hessian
 
