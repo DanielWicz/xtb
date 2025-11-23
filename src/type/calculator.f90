@@ -195,6 +195,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
       end do
    end do
+!$ deallocate(gr, gl)
    !$omp end parallel
 end subroutine hessian
 
