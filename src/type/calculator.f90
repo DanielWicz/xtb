@@ -173,13 +173,13 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       ! Determine batch size
       ! Ensure we have enough work items (atoms * 3 coords) to saturate n_tasks
       ! Each atom provides 3 parallelizable items (x, y, z displacements)
-      ! We want batch_size * 3 >= n_tasks
-      batch_size = max(1, ceiling(real(n_tasks, wp) / 3.0_wp))
+      ! We want at least 3 items per task to average out stragglers
+      batch_size = max(1, n_tasks)
       
       ! If we are tuning, keep batch small to react quickly
       ! If optimal found, we can increase batch size for efficiency to reduce parallel overhead
       if (optimal_found) then
-         batch_size = max(8, n_tasks * 2)
+         batch_size = max(8, n_tasks * 4)
       endif
 
       kat_end = min(size(list), kat_start + batch_size - 1)
