@@ -83,9 +83,40 @@ module xtb_type_wavefunction
    procedure :: allocate => allocate_wavefunction
    procedure :: deallocate => deallocate_wavefunction
    procedure :: print => print_wavefunction
+   procedure :: copy_restart => copy_restart_wavefunction
    end type TWavefunction
 
 contains
+
+subroutine copy_restart_wavefunction(self, other)
+   class(TWavefunction), intent(out) :: self
+   class(TWavefunction), intent(in)  :: other
+
+   call self%allocate(other%n, other%nshell, other%nao)
+   
+   self%nel = other%nel
+   self%nopen = other%nopen
+   self%ihomo = other%ihomo
+   self%ihomoa = other%ihomoa
+   self%ihomob = other%ihomob
+   self%efa = other%efa
+   self%efb = other%efb
+
+   ! Copy essential restart data
+   if (allocated(other%P)) self%P = other%P
+   if (allocated(other%q)) self%q = other%q
+   if (allocated(other%qsh)) self%qsh = other%qsh
+   if (allocated(other%dipm)) self%dipm = other%dipm
+   if (allocated(other%qp)) self%qp = other%qp
+   if (allocated(other%focc)) self%focc = other%focc
+   if (allocated(other%focca)) self%focca = other%focca
+   if (allocated(other%foccb)) self%foccb = other%foccb
+   if (allocated(other%emo)) self%emo = other%emo
+
+   ! Do NOT copy large arrays that are overwritten during SCF (C, wbo)
+   ! They are already allocated and zeroed by self%allocate
+
+end subroutine copy_restart_wavefunction
 
 subroutine allocate_wavefunction(self,n,nshell,nao)
    class(TWavefunction),intent(inout) :: self

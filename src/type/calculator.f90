@@ -219,7 +219,7 @@ subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient,
 
    call mol%copy(mol0)
    mol%xyz(ic, iat) = mol0%xyz(ic, iat) + step
-   call chk%copy(chk0)
+   call chk%copy_restart(chk0)
    call self%singlepoint(env, mol, chk, -1, .true., energy, gradient, sigma, egap, res)
 
    dipole = res%dipole

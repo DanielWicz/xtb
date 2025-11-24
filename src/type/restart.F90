@@ -46,9 +46,21 @@ module xtb_type_restart
 #endif
    contains
       procedure :: copy => copyRestartType
+      procedure :: copy_restart => copyRestartType_light
    end type TRestart
 
 contains
+
+subroutine copyRestartType_light(self, other)
+   class(TRestart), intent(out) :: self
+   class(TRestart), intent(in) :: other
+
+   call self%wfn%copy_restart(other%wfn)
+   self%nlist = other%nlist
+#if WITH_TBLITE
+   self%tblite = other%tblite
+#endif
+end subroutine copyRestartType_light
 
 subroutine copyRestartType(self, other)
    class(TRestart), intent(out) :: self
