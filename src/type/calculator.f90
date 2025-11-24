@@ -141,8 +141,6 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1, t_batch_start, t_batch_end
    real(wp), allocatable :: gr(:, :), gl(:, :)
-   character(len=32) :: envval
-   integer :: status
    
    ! Adaptive load balancing variables
    integer :: n_tasks, n_threads_per_task, max_threads
@@ -155,20 +153,11 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    step2 = 0.5_wp / step
 
    ! Environment settings
-   call omp_set_nested(.true.)
+   call omp_set_max_active_levels(2)
    call omp_set_dynamic(.false.)
    max_threads = omp_get_max_threads()
 
-   ! Manual override via Environment Variable
    force_serial = .false.
-   call get_environment_variable("XTB_SERIAL_HESS", envval, status=status)
-   if (status == 0) then
-      if (trim(envval) == '1') then
-         force_serial = .true.
-         write(env%unit, '(A)') "Numerical Hessian: Serial execution enforced by XTB_SERIAL_HESS=1"
-      endif
-   endif
-
    if (.not. self%threadsafe) force_serial = .true.
 
    ! Initialization for adaptive loop
@@ -188,9 +177,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       batch_size = max(1, ceiling(real(n_tasks, wp) / 3.0_wp))
       
       ! If we are tuning, keep batch small to react quickly
-      ! If optimal found, we can increase batch size for efficiency
+      ! If optimal found, we can increase batch size for efficiency to reduce parallel overhead
       if (optimal_found) then
-         batch_size = max(batch_size, 4) 
+         batch_size = max(8, n_tasks * 2)
       endif
 
       kat_end = min(size(list), kat_start + batch_size - 1)
@@ -256,7 +245,6 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
             if (kat == 3 .and. ic == 3) then
                !$omp critical(xtb_numdiff2)
                call timing(t1, w1)
-               ! Estimated time printing removed to avoid spam in batches
                !$omp end critical(xtb_numdiff2)
             endif
 
@@ -271,8 +259,10 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       if (.not. optimal_found .and. .not. force_serial) then
          throughput = real(n_work_items, wp) / (t_batch_end - t_batch_start + 1.0e-10_wp)
          
-         write(env%unit, '(A,I0,A,I0,A,F10.4,A)') "Hessian Tuning: Tasks=", n_tasks, &
-            " Threads/Task=", n_threads_per_task, " Throughput=", throughput, " items/s"
+         if (self%threadsafe) then
+            write(env%unit, '(A,I0,A,I0,A,F10.4,A)') "Hessian Tuning: Tasks=", n_tasks, &
+               " Threads/Task=", n_threads_per_task, " Throughput=", throughput, " items/s"
+         end if
 
          if (n_tasks == 1) then
             best_throughput = throughput
@@ -300,7 +290,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
                n_tasks = n_tasks / 2
                n_threads_per_task = max_threads / n_tasks
                optimal_found = .true.
-               write(env%unit, '(A,I0,A)') "Hessian Tuning: Optimal found at ", n_tasks, " tasks."
+               if (self%threadsafe) write(env%unit, '(A,I0,A)') "Hessian Tuning: Optimal found at ", n_tasks, " tasks."
             endif
          endif
       endif
