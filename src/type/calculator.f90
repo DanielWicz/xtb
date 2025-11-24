@@ -23,6 +23,7 @@ module xtb_type_calculator
    use xtb_type_environment, only : TEnvironment
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
+   use xtb_setparam, only : set
    use omp_lib
    implicit none
 
@@ -259,7 +260,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       if (.not. optimal_found .and. .not. force_serial) then
          throughput = real(n_work_items, wp) / (t_batch_end - t_batch_start + 1.0e-10_wp)
          
-         if (self%threadsafe) then
+         if (self%threadsafe .and. set%verbose) then
             write(env%unit, '(A,I0,A,I0,A,F10.4,A)') "Hessian Tuning: Tasks=", n_tasks, &
                " Threads/Task=", n_threads_per_task, " Throughput=", throughput, " items/s"
          end if
@@ -290,7 +291,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
                n_tasks = n_tasks / 2
                n_threads_per_task = max_threads / n_tasks
                optimal_found = .true.
-               if (self%threadsafe) write(env%unit, '(A,I0,A)') "Hessian Tuning: Optimal found at ", n_tasks, " tasks."
+               if (self%threadsafe .and. set%verbose) write(env%unit, '(A,I0,A)') "Hessian Tuning: Optimal found at ", n_tasks, " tasks."
             endif
          endif
       endif
