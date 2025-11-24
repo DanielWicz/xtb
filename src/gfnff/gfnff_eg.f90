@@ -184,7 +184,8 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
    real*8  repab,t16,t19,t26,t27,xa,ya,za,cosa,de,t28
    real*8  gammij,eesinf,etmp,phi,valijklff
    real*8  omega,rn,dr,g3tmp(3,3),g4tmp(3,4)
-   real*8 rij,drij(3,n),drijdcn(2)
+   real*8 rij,drijdcn(2)
+   real*8, allocatable :: drij(:,:)
 
    real*8, allocatable :: rinf(:,:)
    real*8, allocatable :: grab0(:,:,:), rab0(:), eeqtmp(:,:), rabdcn(:,:)
@@ -197,7 +198,7 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
    real(wp),allocatable :: xtmp(:)
    type(tb_timer) :: timer
    real(wp) :: dispthr, cnthr, repthr, hbthr1, hbthr2
-   real(wp) :: dist(n,n)
+   real(wp), allocatable :: dist(:,:)
    real(wp) :: ds(3,3)
    real(wp) :: convF  !convergence factor alpha, aka ewald parameter 
    logical, allocatable :: considered_ABH(:,:,:)
@@ -249,7 +250,8 @@ subroutine gfnff_eg(env,mol,pr,n,ichrg,at,xyz,sigma,g,etot,res_gff, &
 
    allocate(sqrab(n*(n+1)/2),srab(n*(n+1)/2),qtmp(n),g5tmp(3,n), &
    &         eeqtmp(2,n*(n+1)/2),d3list(2,n*(n+1)/2),dcn(3,n,n),cn(n), &
-   &         dcndr(3,n,n), dcndL(3,3,n), hb_dcn(3,n,n),hb_cn(n),dhbcndL(3,3,n))
+   &         dcndr(3,n,n), dcndL(3,3,n), hb_dcn(3,n,n),hb_cn(n),dhbcndL(3,3,n), &
+   &         dist(n,n), drij(3,n))
 
    if (pr) then   
    
