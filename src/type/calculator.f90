@@ -140,16 +140,21 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
    logical :: use_parallel
+   character(len=32) :: envval
+   integer :: status
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
 
    use_parallel = self%threadsafe
-   if (mol0%n > 400) use_parallel = .false.
-
-   if (.not. use_parallel .and. self%threadsafe) then
-      write(env%unit, '(A)') "Large system: Using serial displacements with internal parallelism to save memory."
-   end if
+   
+   call get_environment_variable("XTB_SERIAL_HESS", envval, status=status)
+   if (status == 0) then
+      if (trim(envval) == '1') then
+         use_parallel = .false.
+         write(env%unit, '(A)') "Numerical Hessian: Serial execution enforced by XTB_SERIAL_HESS=1"
+      endif
+   endif
 
    !$omp parallel if(use_parallel) default(none) &
    !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0) &
