@@ -97,6 +97,7 @@ srcs += files(
   'lindh.f90',
   'lin.f90',
   'lin_mod.f90',
+  'load_balancing.f90',
   'local.f90',
   'locmode.f90',
   'lopt.f90',

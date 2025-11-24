@@ -23,6 +23,7 @@ module xtb_type_calculator
    use xtb_type_environment, only : TEnvironment
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
+   use omp_lib
    implicit none
 
    public :: TCalculator
@@ -36,6 +37,7 @@ module xtb_type_calculator
       logical :: lSolv = .false.
       type(TSolvModel), allocatable :: solvation
       logical :: threadsafe = .true.
+      logical :: high_memory_usage = .false.
 
    contains
 
@@ -114,6 +116,7 @@ contains
 
 !> Evaluate hessian by finite difference for all atoms
 subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
+   use xtb_load_balancing, only: get_load_balance
    character(len=*), parameter :: source = "hessian_numdiff_numdiff2"
    !> Single point calculator
    class(TCalculator), intent(inout) :: self
@@ -139,31 +142,56 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
-   logical :: use_parallel
    character(len=32) :: envval
    integer :: status
+   integer :: n_tasks, n_threads_per_task
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
 
-   use_parallel = self%threadsafe
-   
+   ! Default load balancing
+   if (self%threadsafe) then
+      call get_load_balance(mol0%n, n_tasks, n_threads_per_task)
+   else
+      n_tasks = 1
+      n_threads_per_task = omp_get_max_threads()
+   endif
+
+   ! Manual override via Environment Variable
    call get_environment_variable("XTB_SERIAL_HESS", envval, status=status)
    if (status == 0) then
       if (trim(envval) == '1') then
-         use_parallel = .false.
+         n_tasks = 1
+         n_threads_per_task = omp_get_max_threads()
          write(env%unit, '(A)') "Numerical Hessian: Serial execution enforced by XTB_SERIAL_HESS=1"
+      elseif (trim(envval) == '0') then
+         ! Force full parallel if possible (legacy behavior)
+         n_tasks = omp_get_max_threads()
+         n_threads_per_task = 1
       endif
    endif
 
-   !$omp parallel if(use_parallel) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0) &
+   if (n_tasks > 1 .and. n_threads_per_task > 1) then
+      ! Nested parallelism required
+      call omp_set_nested(.true.)
+   endif
+
+   if (self%threadsafe) then
+      write(env%unit, '(A,I0,A,I0,A)') "Parallel Numerical Hessian: ", n_tasks, &
+         " concurrent tasks with ", n_threads_per_task, " threads each."
+   endif
+
+   !$omp parallel num_threads(n_tasks) if(n_tasks > 1) default(none) &
+   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, n_threads_per_task) &
    !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
    !$omp& t1, w1)
 
+   ! Set threads for inner region (SCF)
+   if (n_threads_per_task > 0) call omp_set_num_threads(n_threads_per_task)
+
    allocate(gr(3, mol0%n), gl(3, mol0%n))
 
-   !$omp do collapse(2) schedule(runtime)
+   !$omp do collapse(2) schedule(dynamic)
    do kat = 1, size(list)
       do ic = 1, 3
 
@@ -191,6 +219,8 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
          do jat = 1, mol0%n
             do jc = 1, 3
                jj = 3*(jat - 1) + jc
+               ! Atomic update to shared array
+               !$omp atomic update
                hess(jj, ii) = hess(jj, ii) &
                   & + (gr(jc, jat) - gl(jc, jat)) * step2
             end do
@@ -232,7 +262,7 @@ subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient,
 
    call mol%copy(mol0)
    mol%xyz(ic, iat) = mol0%xyz(ic, iat) + step
-   call chk%copy_restart(chk0)
+   call chk%copy(chk0)
    call self%singlepoint(env, mol, chk, -1, .true., energy, gradient, sigma, egap, res)
 
    dipole = res%dipole
