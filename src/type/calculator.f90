@@ -116,7 +116,6 @@ contains
 
 !> Evaluate hessian by finite difference for all atoms
 subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
-   use xtb_load_balancing, only: get_load_balance
    character(len=*), parameter :: source = "hessian_numdiff_numdiff2"
    !> Single point calculator
    class(TCalculator), intent(inout) :: self
@@ -140,105 +139,175 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    integer :: iat, jat, kat, ic, jc, ii, jj
    real(wp) :: er, el, dr(3), dl(3), sr(3, 3), sl(3, 3), egap, step2
    real(wp) :: alphal(3, 3), alphar(3, 3)
-   real(wp) :: t0, t1, w0, w1
+   real(wp) :: t0, t1, w0, w1, t_batch_start, t_batch_end
    real(wp), allocatable :: gr(:, :), gl(:, :)
    character(len=32) :: envval
    integer :: status
-   integer :: n_tasks, n_threads_per_task
+   
+   ! Adaptive load balancing variables
+   integer :: n_tasks, n_threads_per_task, max_threads
+   integer :: kat_start, kat_end, batch_size
+   real(wp) :: throughput, best_throughput
+   logical :: optimal_found, force_serial
+   integer :: n_work_items
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
 
-   ! Default load balancing
-   if (self%threadsafe) then
-      call get_load_balance(mol0%n, n_tasks, n_threads_per_task)
-   else
-      n_tasks = 1
-      n_threads_per_task = omp_get_max_threads()
-   endif
+   ! Environment settings
+   call omp_set_nested(.true.)
+   call omp_set_dynamic(.false.)
+   max_threads = omp_get_max_threads()
 
    ! Manual override via Environment Variable
+   force_serial = .false.
    call get_environment_variable("XTB_SERIAL_HESS", envval, status=status)
    if (status == 0) then
       if (trim(envval) == '1') then
-         n_tasks = 1
-         n_threads_per_task = omp_get_max_threads()
+         force_serial = .true.
          write(env%unit, '(A)') "Numerical Hessian: Serial execution enforced by XTB_SERIAL_HESS=1"
-      elseif (trim(envval) == '0') then
-         ! Force full parallel if possible (legacy behavior)
-         n_tasks = omp_get_max_threads()
-         n_threads_per_task = 1
       endif
    endif
 
-   if (n_tasks > 1 .and. n_threads_per_task > 1) then
-      ! Nested parallelism required
-      call omp_set_nested(.true.)
-   endif
+   if (.not. self%threadsafe) force_serial = .true.
 
-   if (self%threadsafe) then
-      write(env%unit, '(A,I0,A,I0,A)') "Parallel Numerical Hessian: ", n_tasks, &
-         " concurrent tasks with ", n_threads_per_task, " threads each."
-   endif
+   ! Initialization for adaptive loop
+   kat_start = 1
+   n_tasks = 1 
+   n_threads_per_task = max_threads
+   best_throughput = 0.0_wp
+   optimal_found = .false.
 
-   !$omp parallel num_threads(n_tasks) if(n_tasks > 1) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, n_threads_per_task) &
-   !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
-   !$omp& t1, w1)
+   ! Main loop over atoms (batched)
+   do while (kat_start <= size(list))
+      
+      ! Determine batch size
+      ! Ensure we have enough work items (atoms * 3 coords) to saturate n_tasks
+      ! Each atom provides 3 parallelizable items (x, y, z displacements)
+      ! We want batch_size * 3 >= n_tasks
+      batch_size = max(1, ceiling(real(n_tasks, wp) / 3.0_wp))
+      
+      ! If we are tuning, keep batch small to react quickly
+      ! If optimal found, we can increase batch size for efficiency
+      if (optimal_found) then
+         batch_size = max(batch_size, 4) 
+      endif
 
-   ! Set threads for inner region (SCF)
-   if (n_threads_per_task > 0) call omp_set_num_threads(n_threads_per_task)
+      kat_end = min(size(list), kat_start + batch_size - 1)
+      n_work_items = (kat_end - kat_start + 1) * 3
 
-   allocate(gr(3, mol0%n), gl(3, mol0%n))
+      if (force_serial) then
+         n_tasks = 1
+         n_threads_per_task = max_threads
+         optimal_found = .true. ! Skip tuning
+      endif
 
-   !$omp do collapse(2) schedule(dynamic)
-   do kat = 1, size(list)
-      do ic = 1, 3
+      ! Set outer threads
+      ! Note: omp_set_num_threads affects the NEXT parallel region
+      call omp_set_num_threads(n_tasks)
 
-         iat = list(kat)
-         ii = 3*(iat - 1) + ic
-         er = 0.0_wp
-         el = 0.0_wp
-         gr = 0.0_wp
-         gl = 0.0_wp
+      call timing(t_batch_start, w0)
 
-         call hessian_point(self, env, mol0, chk0, iat, ic, +step, er, gr, sr, egap, dr, alphar)
-         call hessian_point(self, env, mol0, chk0, iat, ic, -step, el, gl, sl, egap, dl, alphal)
+      ! Parallel region for the batch
+      !$omp parallel num_threads(n_tasks) default(none) &
+      !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, n_threads_per_task, kat_start, kat_end, t1, w1) &
+      !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, ic)
+      
+      ! Set threads for inner SCF (affects subsequent parallel regions inside)
+      if (n_threads_per_task > 0) call omp_set_num_threads(n_threads_per_task)
 
-         if (present(polgrad)) then
-            polgrad(1, ii) = (alphar(1, 1) - alphal(1, 1)) * step2
-            polgrad(2, ii) = (alphar(1, 2) - alphal(1, 2)) * step2
-            polgrad(3, ii) = (alphar(2, 2) - alphal(2, 2)) * step2
-            polgrad(4, ii) = (alphar(1, 3) - alphal(1, 3)) * step2
-            polgrad(5, ii) = (alphar(2, 3) - alphal(2, 3)) * step2
-            polgrad(6, ii) = (alphar(3, 3) - alphal(3, 3)) * step2
-         endif
+      allocate(gr(3, mol0%n), gl(3, mol0%n))
 
-         dipgrad(:, ii) = (dr - dl) * step2
+      !$omp do collapse(2) schedule(dynamic)
+      do kat = kat_start, kat_end
+         do ic = 1, 3
 
-         do jat = 1, mol0%n
-            do jc = 1, 3
-               jj = 3*(jat - 1) + jc
-               ! Atomic update to shared array
-               !$omp atomic update
-               hess(jj, ii) = hess(jj, ii) &
-                  & + (gr(jc, jat) - gl(jc, jat)) * step2
+            iat = list(kat)
+            ii = 3*(iat - 1) + ic
+            er = 0.0_wp
+            el = 0.0_wp
+            gr = 0.0_wp
+            gl = 0.0_wp
+
+            call hessian_point(self, env, mol0, chk0, iat, ic, +step, er, gr, sr, egap, dr, alphar)
+            call hessian_point(self, env, mol0, chk0, iat, ic, -step, el, gl, sl, egap, dl, alphal)
+
+            if (present(polgrad)) then
+               polgrad(1, ii) = (alphar(1, 1) - alphal(1, 1)) * step2
+               polgrad(2, ii) = (alphar(1, 2) - alphal(1, 2)) * step2
+               polgrad(3, ii) = (alphar(2, 2) - alphal(2, 2)) * step2
+               polgrad(4, ii) = (alphar(1, 3) - alphal(1, 3)) * step2
+               polgrad(5, ii) = (alphar(2, 3) - alphal(2, 3)) * step2
+               polgrad(6, ii) = (alphar(3, 3) - alphal(3, 3)) * step2
+            endif
+
+            dipgrad(:, ii) = (dr - dl) * step2
+
+            do jat = 1, mol0%n
+               do jc = 1, 3
+                  jj = 3*(jat - 1) + jc
+                  ! Atomic update to shared array
+                  !$omp atomic update
+                  hess(jj, ii) = hess(jj, ii) &
+                     & + (gr(jc, jat) - gl(jc, jat)) * step2
+               end do
             end do
+
+            if (kat == 3 .and. ic == 3) then
+               !$omp critical(xtb_numdiff2)
+               call timing(t1, w1)
+               ! Estimated time printing removed to avoid spam in batches
+               !$omp end critical(xtb_numdiff2)
+            endif
+
          end do
-
-         if (kat == 3 .and. ic == 3) then
-            !$omp critical(xtb_numdiff2)
-            call timing(t1, w1)
-            write(*,'("estimated CPU  time",F10.2," min")') &
-               & 0.3333333_wp*size(list)*(t1-t0)/60.0_wp
-            write(*,'("estimated wall time",F10.2," min")') &
-               & 0.3333333_wp*size(list)*(w1-w0)/60.0_wp
-            !$omp end critical(xtb_numdiff2)
-         endif
-
       end do
+      deallocate(gr, gl)
+      !$omp end parallel
+
+      call timing(t_batch_end, w0)
+      
+      ! Adaptive Logic
+      if (.not. optimal_found .and. .not. force_serial) then
+         throughput = real(n_work_items, wp) / (t_batch_end - t_batch_start + 1.0e-10_wp)
+         
+         write(env%unit, '(A,I0,A,I0,A,F10.4,A)') "Hessian Tuning: Tasks=", n_tasks, &
+            " Threads/Task=", n_threads_per_task, " Throughput=", throughput, " items/s"
+
+         if (n_tasks == 1) then
+            best_throughput = throughput
+            ! Try doubling tasks if we have threads
+            if (max_threads >= 2) then
+               n_tasks = 2
+               n_threads_per_task = max_threads / 2
+            else
+               optimal_found = .true.
+            endif
+         else
+            ! Compare with previous
+            if (throughput > best_throughput * 1.05_wp) then
+               ! Improvement > 5%, keep increasing
+               best_throughput = throughput
+               if (n_tasks * 2 <= max_threads) then
+                  n_tasks = n_tasks * 2
+                  n_threads_per_task = max_threads / n_tasks
+               else
+                  optimal_found = .true.
+               endif
+            else
+               ! No significant improvement or degradation
+               ! Revert to previous config (which was safer/better)
+               n_tasks = n_tasks / 2
+               n_threads_per_task = max_threads / n_tasks
+               optimal_found = .true.
+               write(env%unit, '(A,I0,A)') "Hessian Tuning: Optimal found at ", n_tasks, " tasks."
+            endif
+         endif
+      endif
+
+      kat_start = kat_end + 1
    end do
-   !$omp end parallel
+
 end subroutine hessian
 
 subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient, sigma, egap, dipole, alpha)
