@@ -139,11 +139,19 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
+   logical :: use_parallel
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
 
-   !$omp parallel if(self%threadsafe) default(none) &
+   use_parallel = self%threadsafe
+   if (mol0%n > 400) use_parallel = .false.
+
+   if (.not. use_parallel .and. self%threadsafe) then
+      write(env%unit, '(A)') "Large system: Using serial displacements with internal parallelism to save memory."
+   end if
+
+   !$omp parallel if(use_parallel) default(none) &
    !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0) &
    !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
    !$omp& t1, w1)
