@@ -140,7 +140,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    integer :: iat, jat, kat, ic, jc, ii, jj
    real(wp) :: er, el, dr(3), dl(3), sr(3, 3), sl(3, 3), egap, step2
    real(wp) :: alphal(3, 3), alphar(3, 3)
-   real(wp) :: t0, t1, w0, w1, t_batch_start, t_batch_end
+   real(wp) :: t0, t1, w0, w1, t_batch_start, t_batch_end, w_batch_start, w_batch_end
    real(wp), allocatable :: gr(:, :), gl(:, :)
    
    ! Adaptive load balancing variables
@@ -196,7 +196,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       ! Note: omp_set_num_threads affects the NEXT parallel region
       call omp_set_num_threads(n_tasks)
 
-      call timing(t_batch_start, w0)
+      call timing(t_batch_start, w_batch_start)
 
       ! Parallel region for the batch
       !$omp parallel num_threads(n_tasks) default(none) &
@@ -254,11 +254,11 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       deallocate(gr, gl)
       !$omp end parallel
 
-      call timing(t_batch_end, w0)
+      call timing(t_batch_end, w_batch_end)
       
       ! Adaptive Logic
       if (.not. optimal_found .and. .not. force_serial) then
-         throughput = real(n_work_items, wp) / (t_batch_end - t_batch_start + 1.0e-10_wp)
+         throughput = real(n_work_items, wp) / (w_batch_end - w_batch_start + 1.0e-10_wp)
          
          if (self%threadsafe .and. set%verbose) then
             write(env%unit, '(A,I0,A,I0,A,F10.4,A)') "Hessian Tuning: Tasks=", n_tasks, &
