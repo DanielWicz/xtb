@@ -518,6 +518,12 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp), allocatable :: hess_model(:, :), dipgrad_model(:, :)
    type(TMolecule) :: mol_model
    integer, allocatable :: list_model(:)
+   
+   ! Temporary variables for allocation
+   type(TxTBCalculator), allocatable :: tmp 
+   type(TGFFCalculator), allocatable :: gff
+   type(TOrcaCalculator), allocatable :: orca
+   type(TTMCalculator), allocatable :: turbo
 
    ! compute complete hessian for outer region !
    call self%real_low%hessian(env, mol0, chk0, list, step, &
@@ -529,6 +535,63 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    call self%cutbond(env, mol0, chk0, self%topo, mol_model,jacobian,idx2)
    mol_model%chrg = float(self%chrg_model)
    list_model = [(ii, ii = 1, size(self%idx))]
+
+   ! Ensure model_low is allocated
+   if (.not. allocated(self%model_low)) then
+      select case (self%method_low)
+      case default
+         call env%error("Invalid low-level inner method in Hessian", source)
+         return
+      case (1, 2)
+         allocate (tmp)
+         call newXTBCalculator(env, mol_model, tmp, method=self%method_low)
+         call move_alloc(tmp, self%model_low)
+      case (3)
+         allocate (gff)
+         call newGFFCalculator(env, mol_model, gff, ".param_gfnff.xtb", .false.)
+         call move_alloc(gff, self%model_low)
+      end select
+   end if
+
+   ! Ensure model_high is allocated
+   if (.not. allocated(self%model_high)) then
+      select case (self%method_high)
+      case default
+         call env%error("Invalid high-level inner method in Hessian", source)
+         return
+      case (1, 2)
+         allocate (tmp)
+         call newXTBCalculator(env, mol_model, tmp, method=self%method_high)
+         call move_alloc(tmp, self%model_high)
+      case (3)
+         allocate (gff)
+         call newGFFCalculator(env, mol_model, gff, ".param_gfnff.xtb", .false.)
+         call move_alloc(gff, self%model_high)
+      case (4)
+         allocate (orca)
+         call newOrcaCalculator(orca, env, set%ext_orca, oniom=.true.)
+         call move_alloc(orca, self%model_high)
+      case (5)  
+         allocate (turbo)
+         call newTMCalculator(turbo, 1, 1)
+         call move_alloc(turbo, self%model_high)
+         call protectCoord(env)
+      end select
+   end if
+   
+   ! Ensure wavefunctions are initialized
+   if (.not.allocated(self%chk_low%wfn%qsh)) then
+      select type (calc => self%model_low)
+      type is (TxTBCalculator)
+         call newWavefunction(env, mol_model, calc, self%chk_low)
+      end select
+   end if
+   if (.not.allocated(self%chk_high%wfn%qsh)) then
+      select type (calc => self%model_high)
+      type is (TxTBCalculator)
+         call newWavefunction(env, mol_model, calc, self%chk_high)
+      end select
+   end if
 
    allocate(hess_model(3*mol_model%n, 3*mol_model%n))
    allocate(dipgrad_model(3, 3*mol_model%n))

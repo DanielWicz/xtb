@@ -32,10 +32,82 @@ subroutine collect_oniom(testsuite)
       new_unittest("calculateCharge", test_oniom_calculateCharge), &
          !! function that registers a new unit test -> result unittest_type object
       new_unittest("cutbond", test_oniom_cutbond), &
-      new_unittest("singlepoint", test_oniom_singlepoint) &
+      new_unittest("singlepoint", test_oniom_singlepoint), &
+      new_unittest("hessian", test_oniom_hessian) &
       ]
 
 end subroutine collect_oniom 
+
+!---------------------------------------------
+! Unit test ONIOM hessian
+!---------------------------------------------
+subroutine test_oniom_hessian(error)
+   use xtb_mctc_accuracy, only : wp
+   use xtb_type_environment
+   use xtb_type_molecule
+   use xtb_type_restart
+   use xtb_oniom, only : TOniomCalculator, newOniomCalculator, oniom_input
+   use xtb_xtb_calculator, only : TxTBCalculator, newWavefunction
+
+   type(error_type), allocatable, intent(out) :: error
+   real(wp), parameter :: thr = 1.0e-5_wp
+   
+   ! Water dimer
+   integer, parameter :: nat = 6
+   integer, parameter :: at(nat) = [8,1,1, 8,1,1]
+   real(wp), parameter :: xyz(3,nat) = reshape([ &
+      -2.75237178376284_wp, 2.43247309226225_wp,-0.01392519847964_wp, &
+      -0.93157260886974_wp, 2.79621404458590_wp,-0.01863384029005_wp, &
+      -3.43820531288547_wp, 3.30583608421060_wp, 1.42134539425148_wp, &
+      -2.43247309226225_wp,-2.75237178376284_wp, 0.01392519847964_wp, &
+      -2.79621404458590_wp,-0.93157260886974_wp, 0.01863384029005_wp, &
+      -3.30583608421060_wp,-3.43820531288547_wp,-1.42134539425148_wp], shape(xyz))
+
+   type(TMolecule) :: mol
+   type(TRestart) :: chk
+   type(TEnvironment) :: env
+   type(TOniomCalculator) :: calc
+   type(oniom_input) :: oniom_in
+   
+   real(wp), allocatable :: hess(:,:), dipgrad(:,:)
+   integer, allocatable :: list(:)
+   real(wp) :: step
+   integer :: i
+
+   call init(env)
+   call init(mol, at, xyz)
+   mol%chrg = 0.0_wp
+
+   ! Use GFN2 for both layers to keep it simple/consistent
+   oniom_in%first_arg = "gfn2:gfn2"
+   oniom_in%second_arg = "1-3" ! First water molecule is inner region
+
+   call newOniomCalculator(calc, env, mol, oniom_in)
+
+   select type(xtb => calc%real_low)
+   type is(TxTBCalculator)
+      call chk%wfn%allocate(mol%n, xtb%basis%nshell, xtb%basis%nao)
+      call newWavefunction(env, mol, xtb, chk)
+   end select
+
+   allocate(hess(3*nat, 3*nat))
+   allocate(dipgrad(3, 3*nat))
+   hess = 0.0_wp
+   dipgrad = 0.0_wp
+   
+   ! Displace all atoms
+   list = [(i, i=1, nat)]
+   step = 0.005_wp
+
+   call calc%hessian(env, mol, chk, list, step, hess, dipgrad)
+
+   ! Basic sanity check: Hessian should be symmetric
+   call check_(error, maxval(abs(hess - transpose(hess))), 0.0_wp, thr=1.0e-4_wp)
+   
+   ! Check a diagonal element (non-zero)
+   call check_(error, abs(hess(1,1)) > 0.1_wp, .true.)
+
+end subroutine test_oniom_hessian
 
 !---------------------------------------------
 ! Unit test for automatic charge determination
