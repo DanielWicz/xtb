@@ -17,9 +17,9 @@
 
 !> general functions for core functionalities of the SCC
 module xtb_scc_core
-   use xtb_mctc_accuracy, only : wp
+   use xtb_mctc_accuracy, only : wp, sp
    use xtb_mctc_la, only : contract
-   use xtb_mctc_lapack, only : lapack_sygvd
+   use xtb_mctc_lapack, only : lapack_sygvd, lapack_sygst, lapack_syevd
    use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver
    use xtb_type_environment, only : TEnvironment
@@ -408,15 +408,40 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    logical  :: econverged
    logical  :: qconverged
 
+   real(sp),allocatable :: H4(:,:)
+   real(sp),allocatable :: S4(:,:)
+   real(sp),allocatable :: X4(:,:)
+   real(sp),allocatable :: P4(:,:)
+   real(sp),allocatable :: e4(:)
+   real(sp),allocatable :: aux4(:), aux4_query(:)
+   integer, allocatable :: iwork(:), iwork_query(:)
+   integer :: lwork, liwork, info
+
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
    call mctc_potrf(env, S_factorized)
+   
+   allocate(H4(ndim,ndim),S4(ndim,ndim))
+   allocate(X4(ndim,ndim),P4(ndim,ndim),e4(ndim))
+   
+   ! Workspace query for SP diagonalization
+   allocate(aux4_query(1), iwork_query(1))
+   H4 = 0.0_sp
+   call lapack_syevd('V', 'U', ndim, H4, ndim, e4, aux4_query, -1, iwork_query, -1, info)
+   lwork = int(aux4_query(1))
+   liwork = iwork_query(1)
+   allocate(aux4(lwork), iwork(liwork))
+   deallocate(aux4_query, iwork_query)
+   
+   S4 = S
+   call mctc_potrf(env, S4)
 
    converged = .false.
    lastdiag = .false.
    ! number of iterations for this iterator
    thisiter = maxiter - jter
 
+   rmsq = 100.0_wp
    damp = damp0
    if (present(aes)) then
       nbr = nshell + 9*n
@@ -472,7 +497,12 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    !call solve(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail)
 
-   call solver%fact_solve(env, H, S_factorized, emo)
+   if (.not. lastdiag) then
+      call solve4(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail,H4,S4,X4,P4,e4,aux4,iwork)
+   else
+      call solver%fact_solve(env, H, S_factorized, emo)
+   end if
+   
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
@@ -799,7 +829,7 @@ end subroutine addToShellShift
 !! ========================================================================
 !  eigenvalue solver single-precision
 !! ========================================================================
-subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
+subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail,H4,S4,X4,P4,e4,aux4,iwork)
    use xtb_mctc_accuracy, only : sp
    integer, intent(in)   :: ndim
    logical, intent(in)   :: full
@@ -811,89 +841,69 @@ subroutine solve4(full,ndim,ihomo,acc,H,S,X,P,e,fail)
    real(wp),intent(out)  :: e(ndim)
    real(wp),intent(in)   :: acc
    logical, intent(out)  :: fail
+   real(sp),intent(inout):: H4(ndim,ndim)
+   real(sp),intent(inout):: S4(ndim,ndim)
+   real(sp),intent(inout):: X4(ndim,ndim)
+   real(sp),intent(inout):: P4(ndim,ndim)
+   real(sp),intent(inout):: e4(ndim)
+   real(sp),intent(inout):: aux4(:)
+   integer,intent(inout) :: iwork(:)
+
+   interface
+      subroutine strtrs(uplo, trans, diag, n, nrhs, a, lda, b, ldb, info)
+         use xtb_mctc_accuracy, only : sp
+         character(len=1), intent(in) :: uplo, trans, diag
+         integer, intent(in) :: n, nrhs, lda, ldb
+         real(sp), intent(in) :: a(lda, *)
+         real(sp), intent(inout) :: b(ldb, *)
+         integer, intent(out) :: info
+      end subroutine strtrs
+   end interface
 
    integer i,j,info,lwork,liwork,nfound,iu,nbf
-   integer, allocatable :: iwork(:),ifail(:)
    real(wp),allocatable :: aux  (:)
    real(wp) w0,w1,t0,t1
 
-   real(sp),allocatable :: H4(:,:)
-   real(sp),allocatable :: S4(:,:)
-   real(sp),allocatable :: X4(:,:)
-   real(sp),allocatable :: P4(:,:)
-   real(sp),allocatable :: e4(:)
-   real(sp),allocatable :: aux4(:)
-
-
-   allocate(H4(ndim,ndim),S4(ndim,ndim))
-   allocate(X4(ndim,ndim),P4(ndim,ndim),e4(ndim))
-
    H4 = H
-   S4 = S
+   ! S4 is already factorized (input)
 
-   fail =.false.
+   fail = .false.
+   lwork = size(aux4)
+   liwork = size(iwork)
+
 !  standard first full diag call
    if(full) then
-!                                                     call timing(t0,w0)
-!     if(ndim.gt.0)then
-!     USE DIAG IN NON-ORTHORGONAL BASIS
-      allocate (aux4(1),iwork(1),ifail(ndim))
-      P4 = s4
-      call lapack_sygvd(1,'v','u',ndim,h4,ndim,p4,ndim,e4,aux4, &!workspace query
-     &           -1,iwork,liwork,info)
-      lwork=int(aux4(1))
-      liwork=iwork(1)
-      deallocate(aux4,iwork)
-      allocate (aux4(lwork),iwork(liwork))              !do it
-      call lapack_sygvd(1,'v','u',ndim,h4,ndim,p4,ndim,e4,aux4, &
-     &           lwork,iwork,liwork,info)
-      if(info.ne.0) then
-         fail=.true.
-         return
+      ! 1. Transform H4 -> H_std using S4 (Cholesky factor)
+      call lapack_sygst(1, 'U', ndim, H4, ndim, S4, ndim, info)
+      if (info /= 0) then
+          fail = .true.
+          return
       endif
-      X4 = H4 ! save
-      deallocate(aux4,iwork,ifail)
 
-!     else
-!        USE DIAG IN ORTHOGONAL BASIS WITH X=S^-1/2 TRAFO
-!        nbf = ndim
-!        lwork  = 1 + 6*nbf + 2*nbf**2
-!        allocate (aux(lwork))
-!        call blas_gemm('N','N',nbf,nbf,nbf,1.0d0,H,nbf,X,nbf,0.0d0,P,nbf)
-!        call blas_gemm('T','N',nbf,nbf,nbf,1.0d0,X,nbf,P,nbf,0.0d0,H,nbf)
-!        call SYEV('V','U',nbf,H,nbf,e,aux,lwork,info)
-!        if(info.ne.0) error stop 'diag error'
-!        call blas_gemm('N','N',nbf,nbf,nbf,1.0d0,X,nbf,H,nbf,0.0d0,P,nbf)
-!        H = P
-!        deallocate(aux)
-!     endif
-!                                                     call timing(t1,w1)
-!                                    call prtime(6,t1-t0,w1-w0,'dsygvd')
+      ! 2. Diagonalize H_std
+      call lapack_syevd('V', 'U', ndim, H4, ndim, e4, aux4, lwork, iwork, liwork, info)
+      if (info /= 0) then
+          fail = .true.
+          return
+      endif
+      
+      ! 3. Back-transform eigenvectors
+      call strtrs('U', 'N', 'N', ndim, ndim, S4, ndim, H4, ndim, info)
+      if (info /= 0) then
+          fail = .true.
+          return
+      endif
+      
+      X4 = H4 ! save eigenvectors
 
    else
-!                                                     call timing(t0,w0)
-!     go to MO basis using trafo(X) from first iteration (=full diag)
-!      call blas_gemm('N','N',ndim,ndim,ndim,1.d0,H4,ndim,X4,ndim,0.d0,P4,ndim)
-!      call blas_gemm('T','N',ndim,ndim,ndim,1.d0,X4,ndim,P4,ndim,0.d0,H4,ndim)
-!                                                     call timing(t1,w1)
-!                       call prtime(6,1.5*(t1-t0),1.5*(w1-w0),'3xdgemm')
-!                                                     call timing(t0,w0)
-!      call pseudodiag(ndim,ihomo,H4,e4)
-!                                                     call timing(t1,w1)
-!                                call prtime(6,t1-t0,w1-w0,'pseudodiag')
-
-!     C = X C', P=scratch
-!      call blas_gemm('N','N',ndim,ndim,ndim,1.d0,X4,ndim,H4,ndim,0.d0,P4,ndim)
-!     save and output MO matrix in AO basis
-!      H4 = P4
+!     Reuse previous eigenvectors/transform if needed. 
    endif
 
    H = H4
    P = P4
    X = X4
    e = e4
-
-   deallocate(e4,P4,X4,S4,H4)
 
 end subroutine solve4
 
