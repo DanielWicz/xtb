@@ -17,7 +17,7 @@
 
 !> general functions for core functionalities of the SCC
 module xtb_scc_core
-   use xtb_mctc_accuracy, only : wp
+   use xtb_mctc_accuracy, only : wp, sp
    use xtb_mctc_la, only : contract
    use xtb_mctc_lapack, only : lapack_sygvd
    use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
@@ -389,6 +389,12 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    type(TxTBCoulomb), intent(inout) :: ies
 
    integer, intent(inout) :: jter
+   
+   real(sp), allocatable :: H_sp(:,:), S_sp(:,:), H0_sp(:), P_sp(:,:)
+   real(sp), allocatable :: shellShift_sp(:)
+   real(sp), allocatable :: dpint_sp(:,:,:), qpint_sp(:,:,:)
+   real(sp), allocatable :: vs_sp(:), vd_sp(:,:), vq_sp(:,:)
+   logical :: doing_sp
 !! ------------------------------------------------------------------------
 !  local variables
    integer,external :: lin
@@ -429,6 +435,20 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    &         dq(nbr),dqlast(nbr),qlast_in(nbr),omega(thisiter), &
    &         q_in(nbr),atomicShift(n), source = 0.0_wp )
 
+   rmsq = 1.0_wp
+   
+   allocate(H_sp(ndim,ndim), S_sp(ndim,ndim), H0_sp(size(H0)), P_sp(ndim,ndim))
+   allocate(shellShift_sp(nshell))
+   S_sp = real(S, sp)
+   H0_sp = real(H0, sp)
+   
+   if (present(aes)) then
+      allocate(dpint_sp(3,ndim,ndim), qpint_sp(6,ndim,ndim))
+      allocate(vs_sp(n), vd_sp(3,n), vq_sp(6,n))
+      dpint_sp = real(dpint, sp)
+      qpint_sp = real(qpint, sp)
+   end if
+
 !! ------------------------------------------------------------------------
 !  Iteration entry point
    scc_iterator: do iter = 1, thisiter
@@ -453,15 +473,6 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    ! expand all atomic potentials to shell resolved potentials
    call addToShellShift(ash, atomicShift, shellShift)
 
-   ! build the charge dependent Hamiltonian
-   if (present(aes)) then
-      call buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
-         & H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh)
-   else
-      call buildIsotropicH1(n,at,ndim,nshell,nmat,matlist,H,H0,S, &
-         & shellShift,aoat2,ao2sh)
-   end if
-
    ! ------------------------------------------------------------------------
    ! solve HC=SCemo(X,P are scratch/store)
    ! solution is in H(=C)/emo
@@ -470,9 +481,36 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    if(iter.lt.startpdiag) fulldiag=.true.
    if(lastdiag )          fulldiag=.true.
 
-   !call solve(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail)
-
-   call solver%fact_solve(env, H, S_factorized, emo)
+   doing_sp = (rmsq > 1.0e-4_wp .or. iter < 2)
+   if (doing_sp) then
+       ! SP Mode
+       shellShift_sp = real(shellShift, sp)
+       if (present(aes)) then
+          vs_sp = real(vs, sp)
+          vd_sp = real(vd, sp)
+          vq_sp = real(vq, sp)
+          call buildIsoAnisotropicH1_sp(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
+             & H_sp,H0_sp,S_sp,shellShift_sp,dpint_sp,qpint_sp,vs_sp,vd_sp,vq_sp,aoat2,ao2sh)
+       else
+          call buildIsotropicH1_sp(n,at,ndim,nshell,nmat,matlist,H_sp,H0_sp,S_sp, &
+             & shellShift_sp,aoat2,ao2sh)
+       end if
+       
+       call solve_sp_direct(ndim, H_sp, S_sp, emo, fail)
+       H = real(H_sp, wp)
+   else
+       ! WP Mode
+       ! build the charge dependent Hamiltonian
+       if (present(aes)) then
+          call buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
+             & H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh)
+       else
+          call buildIsotropicH1(n,at,ndim,nshell,nmat,matlist,H,H0,S, &
+             & shellShift,aoat2,ao2sh)
+       end if
+       
+       call solver%fact_solve(env, H, S_factorized, emo)
+   end if
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
@@ -510,7 +548,12 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    end if
 
    ! density matrix
-   call dmat(ndim,focc,H,P)
+   if (doing_sp) then
+      call dmat_sp(ndim,focc,H_sp,P_sp)
+      P = real(P_sp, wp)
+   else
+      call dmat(ndim,focc,H,P)
+   endif
 
    ! new q
    call mpopsh(n,ndim,nshell,ao2sh,S,P,qsh)
@@ -1540,6 +1583,212 @@ subroutine setzshell(xtbData,n,at,nshell,z,zsh,e,gfn_method)
    enddo
 
 end subroutine setzshell
+
+
+!> build isotropic H1/Fockian (single precision)
+subroutine buildIsotropicH1_sp(n, at, ndim, nshell, nmat, matlist, H, &
+      & H0, S, shellShift, aoat2, ao2sh)
+   use xtb_mctc_convert, only : autoev
+   integer, intent(in)  :: n
+   integer, intent(in)  :: at(n)
+   integer, intent(in)  :: ndim
+   integer, intent(in)  :: nshell
+   integer, intent(in)  :: nmat
+   integer, intent(in)  :: matlist(2,nmat)
+   real(sp),intent(in)  :: H0(ndim*(1+ndim)/2)
+   real(sp),intent(in)  :: S(ndim,ndim)
+   real(sp),intent(in)  :: shellShift(nshell)
+   integer, intent(in)  :: aoat2(ndim)
+   integer, intent(in)  :: ao2sh(ndim)
+   real(sp),intent(out) :: H(ndim,ndim)
+
+   integer  :: m,i,j,k
+   integer  :: ishell,jshell
+   real(sp) :: eh1, H1
+   real(sp), parameter :: autoev_sp = real(autoev, sp)
+
+   H = 0.0_sp
+
+   !$omp parallel do default(none) &
+   !$omp private(m, i, j, k, ishell, jshell, eh1, H1) &
+   !$omp shared(H, H0, S, matlist, nmat, ao2sh, shellShift) &
+   !$omp schedule(static)
+   do m = 1, nmat
+      i = matlist(1,m)
+      j = matlist(2,m)
+      k = j+i*(i-1)/2
+      ishell = ao2sh(i)
+      jshell = ao2sh(j)
+      ! SCC terms
+      eh1 = autoev_sp*(shellShift(ishell) + shellShift(jshell))
+      H1 = -S(j,i)*eh1*0.5_sp
+      H(j,i) = H0(k) + H1
+      H(i,j) = H(j,i)
+   enddo
+
+end subroutine buildIsotropicH1_sp
+
+!> build isotropic & anisotropic H1/Fockian (single precision)
+subroutine buildIsoAnisotropicH1_sp(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
+                         H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh)
+   use xtb_mctc_convert, only : autoev
+   integer, intent(in)  :: n
+   integer, intent(in)  :: at(n)
+   integer, intent(in)  :: ndim
+   integer, intent(in)  :: nshell
+   integer, intent(in)  :: nmat
+   integer, intent(in)  :: ndp
+   integer, intent(in)  :: nqp
+   integer, intent(in)  :: matlist(2,nmat)
+   integer, intent(in)  :: mdlst(2,ndp)
+   integer, intent(in)  :: mqlst(2,nqp)
+   real(sp),intent(in)  :: H0(ndim*(1+ndim)/2)
+   real(sp),intent(in)  :: S(ndim,ndim)
+   real(sp),intent(in)  :: shellShift(nshell)
+   real(sp),intent(in)  :: dpint(3,ndim,ndim)
+   real(sp),intent(in)  :: qpint(6,ndim,ndim)
+   real(sp),intent(in)  :: vs(n)
+   real(sp),intent(in)  :: vd(3,n)
+   real(sp),intent(in)  :: vq(6,n)
+   integer, intent(in)  :: aoat2(ndim)
+   integer, intent(in)  :: ao2sh(ndim)
+   real(sp),intent(inout) :: H(ndim,ndim)
+
+   integer, external :: lin
+   integer  :: m,i,j,k,l
+   integer  :: ii,jj
+   real(sp) :: dum,eh1
+   real(sp), parameter :: autoev_sp = real(autoev, sp)
+
+   !$omp parallel default(none) &
+   !$omp private(m, i, j, k, l, ii, jj, dum, eh1) &
+   !$omp shared(matlist, mdlst, mqlst, ao2sh, aoat2, nmat, ndp, nqp) &
+   !$omp shared(S, H, H0, shellShift, vs, vd, vq, dpint, qpint)
+
+   !> overlap dependent terms
+   !$omp do schedule(static)
+   do m=1,nmat
+      i=matlist(1,m)
+      j=matlist(2,m)
+      k=j+i*(i-1)/2
+      dum = S(j,i)*autoev_sp*0.5_sp
+
+      ii = ao2sh(i)
+      jj = ao2sh(j)
+      ! SCC terms (isotropic; must be first!)
+      eh1 = -dum*(shellShift(ii) + shellShift(jj))
+      H(j,i) = H0(k) + eh1
+
+      ii=aoat2(i)
+      jj=aoat2(j)
+      ! CAMM potential
+      eh1=dum*(vs(ii)+vs(jj))
+      H(j,i)=H(j,i)+eh1
+
+      H(i,j)=H(j,i)
+   enddo
+
+   !> dipolar terms
+   !$omp do schedule(static)
+   do m=1,ndp
+      i=mdlst(1,m)
+      j=mdlst(2,m)
+      k=lin(j,i)
+      ii=aoat2(i)
+      jj=aoat2(j)
+      eh1=0.0_sp
+      do l=1,3
+         eh1=eh1+dpint(l,i,j)*(vd(l,ii)+vd(l,jj))
+      enddo
+      eh1=0.50_sp*eh1*autoev_sp
+      H(i,j)=H(i,j)+eh1
+      H(j,i)=H(i,j)
+   enddo
+
+   !> quadrupole-dependent terms
+   !$omp do schedule(static)
+   do m=1,nqp
+      i=mqlst(1,m)
+      j=mqlst(2,m)
+      ii=aoat2(i)
+      jj=aoat2(j)
+      k=lin(j,i)
+      eh1=0.0_sp
+      ! note: these come in the following order
+      ! xx, yy, zz, xy, xz, yz
+      do l=1,6
+         eh1=eh1+qpint(l,i,j)*(vq(l,ii)+vq(l,jj))
+      enddo
+      eh1=0.50_sp*eh1*autoev_sp
+      H(i,j)=H(i,j)+eh1
+      H(j,i)=H(i,j)
+   enddo
+
+   !$omp end parallel
+
+end subroutine buildIsoAnisotropicH1_sp
+
+subroutine solve_sp_direct(ndim, H, S, e, fail)
+   integer, intent(in) :: ndim
+   real(sp), intent(inout) :: H(ndim, ndim)
+   real(sp), intent(in) :: S(ndim, ndim)
+   real(wp), intent(out) :: e(ndim)
+   logical, intent(out) :: fail
+   
+   real(sp), allocatable :: S_work(:,:)
+   real(sp), allocatable :: e_sp(:)
+   real(sp), allocatable :: work(:)
+   integer, allocatable :: iwork(:)
+   integer :: info, lwork, liwork
+   
+   allocate(S_work(ndim,ndim), e_sp(ndim))
+   S_work = S
+   
+   allocate(work(1), iwork(1))
+   call lapack_sygvd(1, 'V', 'U', ndim, H, ndim, S_work, ndim, e_sp, work, -1, iwork, -1, info)
+   lwork = int(work(1))
+   liwork = iwork(1)
+   deallocate(work, iwork)
+   
+   allocate(work(lwork), iwork(liwork))
+   call lapack_sygvd(1, 'V', 'U', ndim, H, ndim, S_work, ndim, e_sp, work, lwork, iwork, liwork, info)
+   
+   if (info /= 0) then
+       fail = .true.
+   else
+       fail = .false.
+       e = real(e_sp, wp)
+   end if
+end subroutine solve_sp_direct
+
+subroutine dmat_sp(ndim,focc,C,P)
+   use xtb_mctc_blas, only : blas_gemm
+   integer, intent(in)  :: ndim
+   real(wp),intent(in)  :: focc(:)
+   real(sp),intent(in)  :: C(:,:)
+   real(sp),intent(out) :: P(:,:)
+   integer :: i,m
+   real(sp),allocatable :: Ptmp(:,:)
+   real(sp),allocatable :: focc_sp(:)
+
+   allocate(Ptmp(ndim,ndim))
+   allocate(focc_sp(ndim))
+   focc_sp = real(focc, sp)
+
+   Ptmp = 0.0_sp
+   
+   !$omp parallel do default(none) shared(ndim,Ptmp,C,focc_sp) private(i,m)
+   do m=1,ndim
+      do i=1,ndim
+         Ptmp(i,m)=C(i,m)*focc_sp(m)
+      enddo
+   enddo
+   !$omp end parallel do
+
+   call blas_gemm('N','T',ndim,ndim,ndim,1.0_sp,C,ndim,Ptmp,ndim,0.0_sp,P,ndim)
+
+   deallocate(Ptmp, focc_sp)
+end subroutine dmat_sp
 
 
 end module xtb_scc_core
