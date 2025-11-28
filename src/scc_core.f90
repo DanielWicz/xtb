@@ -19,8 +19,10 @@
 module xtb_scc_core
    use xtb_mctc_accuracy, only : wp
    use xtb_mctc_la, only : contract
-   use xtb_mctc_lapack, only : lapack_sygvd
-   use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
+   use xtb_mctc_lapack, only : lapack_sygvd, lapack_syevd
+   use xtb_mctc_lapack_trf, only : lapack_potrf
+   use xtb_mctc_blas, only : blas_gemm, blas_symm, blas_syrk, blas_trsm, &
+      & blas_axpy, blas_scal, blas_nrm2, mctc_symv, mctc_gemm
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver
    use xtb_type_environment, only : TEnvironment
    use xtb_type_solvation, only : TSolvation
@@ -267,7 +269,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
       &        minpr,pr, &
       &        fail,jter)
    use xtb_mctc_convert, only : autoev,evtoau
-   use xtb_mctc_lapack_trf, only : mctc_potrf
+   use xtb_mctc_lapack_trf, only : mctc_potrf, lapack_potrf
 
    use xtb_disp_dftd4,  only: disppot,edisp_scc
    use xtb_aespot, only : gfn2broyden_diff,gfn2broyden_out,gfn2broyden_save, &
@@ -408,9 +410,61 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    logical  :: econverged
    logical  :: qconverged
 
+   ! Chebyshev-Filtered Subspace Iteration (CheFSI) workspace
+   integer  :: nocc_est, nbuf, nbands
+   integer  :: chefsi_order, chefsi_order_full, chefsi_order_warm, filter_stride
+   real(wp) :: emax_est, emin_est, e_cut, center, radius
+   logical  :: chefsi_ready, do_filter
+   real(wp), allocatable :: subspace(:,:)
+   real(wp), allocatable :: filt_prev(:,:), filt_curr(:,:), filt_next(:,:)
+   real(wp), allocatable :: H_ortho(:,:), h_block(:,:)
+   real(wp), allocatable :: small_mat(:,:), chol_buf(:,:)
+   real(wp), allocatable :: ritz_vals(:)
+   real(wp), allocatable :: ritz_full(:)
+
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
    call mctc_potrf(env, S_factorized)
+
+   ! ---------------------------------------------------------------------
+   ! CheFSI configuration
+   nocc_est = (nel + nopen + 1)/2
+   nbuf = int(max(16.0_wp, 0.05_wp*real(nocc_est, wp)))
+   nbuf = min(nbuf, ndim - nocc_est)
+   if (nbuf < 4) nbuf = min(ndim - nocc_est, max(4, ndim - nocc_est))
+   nbands = min(ndim, nocc_est + nbuf)
+   if (nbands < min(ndim, nocc_est + 1)) nbands = min(ndim, nocc_est + 1)
+   if (ndim <= 120) then
+      nbands = ndim
+      nbuf = max(0, ndim - nocc_est)
+   end if
+   if (ndim > 2000) then
+      chefsi_order_full = 24
+      chefsi_order_warm = 12
+      filter_stride = 1
+   elseif (ndim > 1200) then
+      chefsi_order_full = 16
+      chefsi_order_warm = 8
+      filter_stride = 1
+   else
+      chefsi_order_full = 3
+      chefsi_order_warm = 1
+      filter_stride = 4
+   end if
+   chefsi_ready = .false.
+   e_cut = 0.0_wp
+   allocate(subspace(ndim, nbands), filt_prev(ndim, nbands), filt_curr(ndim, nbands), &
+      &     filt_next(ndim, nbands), H_ortho(ndim, ndim), h_block(ndim, nbands), &
+      &     small_mat(nbands, nbands), chol_buf(nbands, nbands), ritz_vals(nbands))
+   subspace = 0.0_wp
+   filt_prev = 0.0_wp
+   filt_curr = 0.0_wp
+   filt_next = 0.0_wp
+   H_ortho = 0.0_wp
+   h_block = 0.0_wp
+   small_mat = 0.0_wp
+   chol_buf = 0.0_wp
+   ritz_vals = 0.0_wp
 
    converged = .false.
    lastdiag = .false.
@@ -428,6 +482,8 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    allocate( df(thisiter,nbr),u(thisiter,nbr),a(thisiter,thisiter), &
    &         dq(nbr),dqlast(nbr),qlast_in(nbr),omega(thisiter), &
    &         q_in(nbr),atomicShift(n), source = 0.0_wp )
+
+   fail = .false.
 
 !! ------------------------------------------------------------------------
 !  Iteration entry point
@@ -470,14 +526,108 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    if(iter.lt.startpdiag) fulldiag=.true.
    if(lastdiag )          fulldiag=.true.
 
-   !call solve(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail)
+   chefsi_order = merge(chefsi_order_full, chefsi_order_warm, fulldiag)
+   do_filter = .true.
 
-   call solver%fact_solve(env, H, S_factorized, emo)
-   call env%check(fail)
-   if(fail)then
-      call env%error("Diagonalization of Hamiltonian failed", source)
-      return
-   endif
+   ! Transform Hamiltonian to orthonormal basis: H_ortho = U^{-T} H U^{-1}
+   H_ortho = H
+   call blas_trsm('L','U','T','N', ndim, ndim, 1.0_wp, S_factorized, ndim, H_ortho, ndim)
+   call blas_trsm('R','U','N','N', ndim, ndim, 1.0_wp, S_factorized, ndim, H_ortho, ndim)
+
+   ! Estimate spectral bounds for scaling
+   call chefsi_gershgorin(H_ortho, emin_est, emax_est)
+
+   if (fulldiag) then
+      allocate(ritz_full(ndim))
+      call chefsi_direct_diag(H_ortho, ritz_full, fail)
+      if (fail) then
+         deallocate(ritz_full)
+         call env%error("Direct diagonalization failed in CheFSI full step", source)
+         return
+      end if
+      subspace(:, 1:nbands) = H_ortho(:, 1:nbands)
+      ritz_vals = ritz_full(1:nbands)
+      if (nocc_est < nbands) then
+         e_cut = 0.5_wp * (ritz_vals(nocc_est) + ritz_vals(nocc_est+1))
+      else
+         e_cut = ritz_vals(min(nbands, max(1, nocc_est)))
+      end if
+      deallocate(ritz_full)
+      chefsi_ready = .true.
+      do_filter = .false.
+   else
+      if (nbands == ndim) then
+         call chefsi_direct_diag(H_ortho, ritz_vals, fail)
+         if (fail) then
+            call env%error("Direct diagonalization failed in CheFSI fallback", source)
+            return
+         end if
+         subspace = H_ortho
+         e_cut = ritz_vals(min(nbands, max(1, nocc_est)))
+         chefsi_ready = .true.
+         do_filter = .false.
+      else
+         if (.not. chefsi_ready) then
+            allocate(ritz_full(ndim))
+            call chefsi_direct_diag(H_ortho, ritz_full, fail)
+            if (fail) then
+               deallocate(ritz_full)
+               call env%error("CheFSI warm-up diagonalization failed", source)
+               return
+            end if
+            subspace(:, 1:nbands) = H_ortho(:, 1:nbands)
+            ritz_vals = ritz_full(1:nbands)
+            if (nocc_est < nbands) then
+               e_cut = 0.5_wp * (ritz_vals(nocc_est) + ritz_vals(nocc_est+1))
+            else
+               e_cut = ritz_vals(min(nbands, max(1, nocc_est)))
+            end if
+            deallocate(ritz_full)
+            chefsi_ready = .true.
+            do_filter = .false.
+         end if
+
+         if (chefsi_ready .and. filter_stride > 1) then
+            if (mod(iter, filter_stride) /= 0) do_filter = .false.
+         end if
+
+         if (do_filter) then
+            center = 0.5_wp*(emax_est + e_cut)
+            radius = max(1.0e-6_wp, 0.5_wp*(emax_est - e_cut))
+
+            call chefsi_filter(H_ortho, subspace, center, radius, chefsi_order, &
+               & filt_prev, filt_curr, filt_next)
+         end if
+
+         call chefsi_orthonormalize(env, subspace, chol_buf, small_mat, fail)
+         if (fail) then
+            call env%error("CheFSI orthonormalization failed", source)
+            return
+         end if
+         call chefsi_rayleigh_ritz(H_ortho, subspace, h_block, small_mat, ritz_vals, fail)
+         if (fail) then
+            call env%error("CheFSI Rayleigh-Ritz failed", source)
+            return
+         end if
+
+         if (nocc_est < nbands) then
+            e_cut = 0.5_wp * (ritz_vals(nocc_est) + ritz_vals(nocc_est+1))
+         else
+            e_cut = ritz_vals(nbands)
+         end if
+      end if
+   end if
+
+   H = 0.0_wp
+   H(:,1:nbands) = subspace
+   call blas_trsm('L','U','N','N', ndim, nbands, 1.0_wp, S_factorized, ndim, H, ndim)
+
+   emo(1:nbands) = ritz_vals
+   if (nbands < ndim) then
+      do i = nbands+1, ndim
+         emo(i) = ritz_vals(nbands) + 100.0_wp + real(i-nbands-1, wp)
+      end do
+   end if
 
    if(ihomo+1.le.ndim.and.ihomo.ge.1)egap=emo(ihomo+1)-emo(ihomo)
    ! automatic reset to small value
@@ -638,6 +788,186 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    fail = .not.converged
 
 end subroutine scc
+
+
+!> Generate a random subspace as CheFSI starting guess
+subroutine chefsi_randomize(mat)
+   real(wp), intent(out) :: mat(:, :)
+   call random_number(mat)
+   mat = mat - 0.5_wp
+end subroutine chefsi_randomize
+
+
+!> Gershgorin bounds as cheap spectral estimate
+subroutine chefsi_gershgorin(H, emin, emax)
+   real(wp), intent(in)  :: H(:, :)
+   real(wp), intent(out) :: emin
+   real(wp), intent(out) :: emax
+   integer :: i, n
+   real(wp) :: rowsum
+
+   n = size(H, 1)
+   emin = huge(1.0_wp)
+   emax = -huge(1.0_wp)
+   do i = 1, n
+      rowsum = sum(abs(H(i, :))) - abs(H(i, i))
+      emax = max(emax, H(i, i) + rowsum)
+      emin = min(emin, H(i, i) - rowsum)
+   end do
+end subroutine chefsi_gershgorin
+
+
+!> Direct diagonalisation of a symmetric matrix (used when subspace spans full space)
+subroutine chefsi_direct_diag(H_ortho, eigvals, fail)
+   real(wp), intent(inout) :: H_ortho(:, :)
+   real(wp), intent(out)   :: eigvals(:)
+   logical, intent(out)    :: fail
+
+   integer :: n, info, lwork, liwork
+   real(wp), allocatable :: work(:)
+   integer, allocatable :: iwork(:)
+
+   fail = .false.
+   n = size(H_ortho, 1)
+
+   allocate(work(1), iwork(1))
+   call lapack_syevd('V', 'U', n, H_ortho, n, eigvals, work, -1, iwork, -1, info)
+   lwork = max(1, int(work(1)))
+   liwork = max(1, iwork(1))
+   deallocate(work, iwork)
+   allocate(work(lwork), iwork(liwork))
+   call lapack_syevd('V', 'U', n, H_ortho, n, eigvals, work, lwork, iwork, liwork, info)
+   deallocate(work, iwork)
+
+   if (info /= 0) then
+      fail = .true.
+   end if
+end subroutine chefsi_direct_diag
+
+
+!> Orthonormalize a block of vectors using Cholesky QR
+subroutine chefsi_orthonormalize(env, V, chol_buf, gram, fail)
+   type(TEnvironment), intent(inout) :: env
+   real(wp), intent(inout) :: V(:, :)
+   real(wp), intent(inout) :: chol_buf(:, :)
+   real(wp), intent(inout) :: gram(:, :)
+   logical, intent(out) :: fail
+   integer :: n, s, info
+
+   n = size(V, 1)
+   s = size(V, 2)
+   fail = .false.
+
+   gram = 0.0_wp
+   call blas_syrk('U', 'T', s, n, 1.0_wp, V, n, 0.0_wp, gram, s)
+
+   chol_buf = gram
+   call lapack_potrf('U', s, chol_buf, s, info)
+   if (info /= 0) then
+      fail = .true.
+      call env%error("CheFSI overlap matrix not positive definite", "chefsi_orthonormalize")
+      return
+   end if
+
+   call blas_trsm('R', 'U', 'N', 'N', n, s, 1.0_wp, chol_buf, s, V, n)
+end subroutine chefsi_orthonormalize
+
+
+!> Rayleigh-Ritz projection on current subspace
+subroutine chefsi_rayleigh_ritz(H_ortho, V, h_block, ritz_mat, ritz_vals, fail)
+   real(wp), intent(in)    :: H_ortho(:, :)
+   real(wp), intent(inout) :: V(:, :)
+   real(wp), intent(inout) :: h_block(:, :)
+   real(wp), intent(inout) :: ritz_mat(:, :)
+   real(wp), intent(out)   :: ritz_vals(:)
+   logical, intent(out)    :: fail
+
+   integer :: n, s, info, lwork, liwork
+   real(wp), allocatable :: work(:)
+   integer, allocatable :: iwork(:)
+
+   fail = .false.
+   n = size(V, 1)
+   s = size(V, 2)
+
+   ! h_block = H_ortho * V
+   call blas_symm('L', 'U', n, s, 1.0_wp, H_ortho, n, V, n, 0.0_wp, h_block, n)
+   ! ritz_mat = V^T * h_block
+   call blas_gemm('T', 'N', s, s, n, 1.0_wp, V, n, h_block, n, 0.0_wp, ritz_mat, s)
+
+   allocate(work(1), iwork(1))
+   call lapack_syevd('V', 'U', s, ritz_mat, s, ritz_vals, work, -1, iwork, -1, info)
+   lwork = max(1, int(work(1)))
+   liwork = max(1, iwork(1))
+   deallocate(work, iwork)
+   allocate(work(lwork), iwork(liwork))
+   call lapack_syevd('V', 'U', s, ritz_mat, s, ritz_vals, work, lwork, iwork, liwork, info)
+   deallocate(work, iwork)
+
+   if (info /= 0) then
+      fail = .true.
+      return
+   end if
+
+   ! Rotate subspace with Ritz vectors
+   call blas_gemm('N', 'N', n, s, s, 1.0_wp, V, n, ritz_mat, s, 0.0_wp, h_block, n)
+   V(:, :) = h_block(:, :)
+end subroutine chefsi_rayleigh_ritz
+
+
+!> Apply Chebyshev polynomial filter to the subspace
+subroutine chefsi_filter(H_ortho, subspace, center, radius, order, t_prev, t_curr, t_next)
+   real(wp), intent(in)    :: H_ortho(:, :)
+   real(wp), intent(inout) :: subspace(:, :)
+   real(wp), intent(in)    :: center
+   real(wp), intent(in)    :: radius
+   integer, intent(in)     :: order
+   real(wp), intent(inout) :: t_prev(:, :)
+   real(wp), intent(inout) :: t_curr(:, :)
+   real(wp), intent(inout) :: t_next(:, :)
+
+   integer :: n, s, k, j
+   real(wp) :: inv_radius, block_scale
+
+   n = size(subspace, 1)
+   s = size(subspace, 2)
+   if (order <= 0 .or. radius <= 0.0_wp) return
+
+   inv_radius = 1.0_wp / radius
+
+   ! T0
+   t_prev(:, :) = subspace
+
+   ! T1 = (H - center I)/radius * subspace
+   call blas_symm('L', 'U', n, s, 1.0_wp, H_ortho, n, subspace, n, 0.0_wp, t_curr, n)
+   do j = 1, s
+      call blas_axpy(n, -center, subspace(:, j), 1, t_curr(:, j), 1)
+      call blas_scal(n, inv_radius, t_curr(:, j), 1)
+   end do
+   block_scale = maxval(abs(t_curr))
+   if (block_scale > 0.0_wp) t_curr = t_curr / block_scale
+
+   if (order == 1) then
+      subspace = t_curr
+      return
+   end if
+
+   do k = 2, order
+      call blas_symm('L', 'U', n, s, 1.0_wp, H_ortho, n, t_curr, n, 0.0_wp, t_next, n)
+      do j = 1, s
+         call blas_axpy(n, -center, t_curr(:, j), 1, t_next(:, j), 1)
+         call blas_scal(n, inv_radius, t_next(:, j), 1)
+         call blas_scal(n, 2.0_wp, t_next(:, j), 1)
+         call blas_axpy(n, -1.0_wp, t_prev(:, j), 1, t_next(:, j), 1)
+      end do
+      block_scale = maxval(abs(t_next))
+      if (block_scale > 0.0_wp) t_next = t_next / block_scale
+      t_prev(:, :) = t_curr
+      t_curr(:, :) = t_next
+   end do
+
+   subspace = t_curr
+end subroutine chefsi_filter
 
 
 !> H0 off-diag scaling
