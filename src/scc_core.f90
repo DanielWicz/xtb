@@ -19,8 +19,8 @@
 module xtb_scc_core
    use xtb_mctc_accuracy, only : wp, sp
    use xtb_mctc_la, only : contract
-   use xtb_mctc_lapack, only : lapack_sygvd
-   use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm
+   use xtb_mctc_lapack, only : lapack_sygvd, lapack_potrf, lapack_sygst, lapack_syevd
+   use xtb_mctc_blas, only : blas_gemm, mctc_symv, mctc_gemm, blas_trsm
    use xtb_mctc_lapack_eigensolve, only : TEigenSolver
    use xtb_type_environment, only : TEnvironment
    use xtb_type_solvation, only : TSolvation
@@ -391,10 +391,12 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    integer, intent(inout) :: jter
    
    real(sp), allocatable :: H_sp(:,:), S_sp(:,:), H0_sp(:), P_sp(:,:)
+   real(sp), allocatable :: S_sp_fact(:,:)
    real(sp), allocatable :: shellShift_sp(:)
    real(sp), allocatable :: dpint_sp(:,:,:), qpint_sp(:,:,:)
    real(sp), allocatable :: vs_sp(:), vd_sp(:,:), vq_sp(:,:)
    logical :: doing_sp
+   integer :: info_sp
 !! ------------------------------------------------------------------------
 !  local variables
    integer,external :: lin
@@ -438,8 +440,16 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    rmsq = 1.0_wp
    
    allocate(H_sp(ndim,ndim), S_sp(ndim,ndim), H0_sp(size(H0)), P_sp(ndim,ndim))
+   allocate(S_sp_fact(ndim, ndim))
    allocate(shellShift_sp(nshell))
    S_sp = real(S, sp)
+   S_sp_fact = S_sp
+   call lapack_potrf('U', ndim, S_sp_fact, ndim, info_sp)
+   if (info_sp /= 0) then
+      fail = .true.
+      call env%error("Cholesky factorization of S failed (SP)", source)
+      return
+   end if
    H0_sp = real(H0, sp)
    
    if (present(aes)) then
@@ -496,7 +506,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
              & shellShift_sp,aoat2,ao2sh)
        end if
        
-       call solve_sp_direct(ndim, H_sp, S_sp, emo, fail)
+       call solve_sp_fact(ndim, H_sp, S_sp_fact, emo, fail)
        H = real(H_sp, wp)
    else
        ! WP Mode
@@ -1728,38 +1738,49 @@ subroutine buildIsoAnisotropicH1_sp(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,
 
 end subroutine buildIsoAnisotropicH1_sp
 
-subroutine solve_sp_direct(ndim, H, S, e, fail)
+subroutine solve_sp_fact(ndim, H, S_fact, e, fail)
    integer, intent(in) :: ndim
    real(sp), intent(inout) :: H(ndim, ndim)
-   real(sp), intent(in) :: S(ndim, ndim)
+   real(sp), intent(in) :: S_fact(ndim, ndim)
    real(wp), intent(out) :: e(ndim)
    logical, intent(out) :: fail
    
-   real(sp), allocatable :: S_work(:,:)
    real(sp), allocatable :: e_sp(:)
    real(sp), allocatable :: work(:)
    integer, allocatable :: iwork(:)
    integer :: info, lwork, liwork
    
-   allocate(S_work(ndim,ndim), e_sp(ndim))
-   S_work = S
+   allocate(e_sp(ndim))
    
+   ! Transform H -> H' = U^-T H U^-1
+   call lapack_sygst(1, 'U', ndim, H, ndim, S_fact, ndim, info)
+   if (info /= 0) then
+      fail = .true.
+      return
+   endif
+
+   ! Workspace query
    allocate(work(1), iwork(1))
-   call lapack_sygvd(1, 'V', 'U', ndim, H, ndim, S_work, ndim, e_sp, work, -1, iwork, -1, info)
+   call lapack_syevd('V', 'U', ndim, H, ndim, e_sp, work, -1, iwork, -1, info)
    lwork = int(work(1))
    liwork = iwork(1)
    deallocate(work, iwork)
    
    allocate(work(lwork), iwork(liwork))
-   call lapack_sygvd(1, 'V', 'U', ndim, H, ndim, S_work, ndim, e_sp, work, lwork, iwork, liwork, info)
+   ! Diagonalize H' -> C'
+   call lapack_syevd('V', 'U', ndim, H, ndim, e_sp, work, lwork, iwork, liwork, info)
    
    if (info /= 0) then
        fail = .true.
    else
        fail = .false.
        e = real(e_sp, wp)
+       ! Back-transform C' -> C = U^-1 C'
+       ! Solve U C = C' (overwriting C' with C)
+       ! S_fact contains U (upper triangular)
+       call blas_trsm('L', 'U', 'N', 'N', ndim, ndim, 1.0_sp, S_fact, ndim, H, ndim)
    end if
-end subroutine solve_sp_direct
+end subroutine solve_sp_fact
 
 subroutine dmat_sp(ndim,focc,C,P)
    use xtb_mctc_blas, only : blas_gemm
@@ -1767,25 +1788,49 @@ subroutine dmat_sp(ndim,focc,C,P)
    real(wp),intent(in)  :: focc(:)
    real(sp),intent(in)  :: C(:,:)
    real(sp),intent(out) :: P(:,:)
-   integer :: i,m
+   integer :: i,m, nocc
    real(sp),allocatable :: Ptmp(:,:)
    real(sp),allocatable :: focc_sp(:)
 
-   allocate(Ptmp(ndim,ndim))
-   allocate(focc_sp(ndim))
-   focc_sp = real(focc, sp)
+   ! Determine number of occupied orbitals
+   nocc = 0
+   do i=1,ndim
+      if (focc(i) > 1.0e-6_wp) nocc = i
+   enddo
+   if (nocc == 0) nocc = ndim ! Should not happen but safe fallback
+
+   allocate(Ptmp(ndim,nocc))
+   allocate(focc_sp(nocc))
+   focc_sp = real(focc(1:nocc), sp)
 
    Ptmp = 0.0_sp
    
-   !$omp parallel do default(none) shared(ndim,Ptmp,C,focc_sp) private(i,m)
-   do m=1,ndim
+   !$omp parallel do default(none) shared(ndim,Ptmp,C,focc_sp,nocc) private(i,m)
+   do m=1,nocc
       do i=1,ndim
          Ptmp(i,m)=C(i,m)*focc_sp(m)
       enddo
    enddo
    !$omp end parallel do
 
-   call blas_gemm('N','T',ndim,ndim,ndim,1.0_sp,C,ndim,Ptmp,ndim,0.0_sp,P,ndim)
+   ! P = C * Ptmp^T = C * (C*focc)^T = C * focc * C^T
+   ! Ptmp is (ndim, nocc). C is (ndim, ndim) but we only use first nocc columns effectively if we did gemm right.
+   ! Wait, blas_gemm(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+   ! P(n,n) = C(n,k) * Ptmp(n,k)^T
+   ! P(i,j) = sum_k C(i,k) * Ptmp(j,k)
+   ! Here k = nocc.
+   ! gemm('N', 'T', ndim, ndim, nocc, ...)
+   ! A is C (ndim, ndim) - we use first nocc cols? No, C is (ndim, ndim).
+   ! We need C(:, 1:nocc).
+   ! Ptmp is (ndim, nocc). Ptmp^T is (nocc, ndim).
+   ! P = C(:, 1:nocc) * Ptmp^T ? 
+   ! Ptmp(i,m) = C(i,m) * focc(m).
+   ! P(i,j) = sum_{m=1..nocc} C(i,m) * focc(m) * C(j,m).
+   ! P(i,j) = sum_{m=1..nocc} C(i,m) * Ptmp(j,m).
+   ! Matrix mult: A * B^T. A = C(:, 1:nocc). B = Ptmp.
+   ! Can we pass partial array to blas_gemm? Yes.
+   
+   call blas_gemm('N','T',ndim,ndim,nocc,1.0_sp,C,ndim,Ptmp,ndim,0.0_sp,P,ndim)
 
    deallocate(Ptmp, focc_sp)
 end subroutine dmat_sp
