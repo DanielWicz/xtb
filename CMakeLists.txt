@@ -74,6 +74,25 @@ endif()
 find_package("LAPACK" REQUIRED)
 find_package("BLAS" REQUIRED)
 
+# Derive LAPACK/BLAS vendor to align compile-time guards with Meson build
+set(XTB_LAPACK_VENDOR "NETLIB")
+if(LAPACK_LIBRARIES)
+  string(TOLOWER "${LAPACK_LIBRARIES}" _lapack_libs_lc)
+  if(_lapack_libs_lc MATCHES "mkl")
+    set(XTB_LAPACK_VENDOR "MKL")
+  elseif(_lapack_libs_lc MATCHES "openblas")
+    set(XTB_LAPACK_VENDOR "OPENBLAS")
+  endif()
+endif()
+
+if(XTB_LAPACK_VENDOR STREQUAL "MKL")
+  add_compile_definitions(XTB_LAPACK_MKL)
+elseif(XTB_LAPACK_VENDOR STREQUAL "OPENBLAS")
+  add_compile_definitions(XTB_LAPACK_OPENBLAS)
+else()
+  add_compile_definitions(XTB_LAPACK_NETLIB)
+endif()
+
 
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/include")
    file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")
