@@ -31,7 +31,8 @@ module xtb_scc_core
    use xtb_broyden
    use xtb_threading_policy, only : ThreadingPolicy, &
       & setup_scc_thread_policy, restore_thread_policy, getenv_int, &
-      & should_use_scc_parallel, log_scc_iteration
+      & should_use_scc_parallel, log_scc_iteration, log_scc_kernel, &
+      & kernel_h1, kernel_dmat, kernel_diag
    implicit none
    private
 
@@ -422,9 +423,11 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    logical  :: qconverged
    logical  :: use_scc_parallel
    integer  :: blas_threads_target
-   integer  :: clk_rate, clk_start, clk_end
+   integer  :: clk_rate, clk_start, clk_end, iter_clk_start, iter_clk_end
    real(wp) :: iter_time
-   type(ThreadingPolicy) :: thread_policy
+   type(ThreadingPolicy) :: thread_policy_h1
+   type(ThreadingPolicy) :: thread_policy_dmat
+   type(ThreadingPolicy) :: thread_policy_diag
 
    call system_clock(count_rate=clk_rate)
    if (clk_rate <= 0) clk_rate = 1
@@ -454,8 +457,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 !  Iteration entry point
    scc_iterator: do iter = 1, thisiter
 
-   call setup_scc_thread_policy(ndim, thread_policy, use_scc_parallel, blas_threads_target)
-   call system_clock(count=clk_start)
+   call system_clock(count=iter_clk_start)
 
    ! set up ES potential
    atomicShift(:) = 0.0_wp
@@ -477,7 +479,9 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    ! expand all atomic potentials to shell resolved potentials
    call addToShellShift(ash, atomicShift, shellShift)
 
-   ! build the charge dependent Hamiltonian
+   ! build the charge dependent Hamiltonian (adaptive threading per kernel)
+   call setup_scc_thread_policy(ndim, thread_policy_h1, use_scc_parallel, blas_threads_target, kernel_id=kernel_h1)
+   call system_clock(count=clk_start)
    if (present(aes)) then
       call buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
          & H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh, &
@@ -486,6 +490,10 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
       call buildIsotropicH1(n,at,ndim,nshell,nmat,matlist,H,H0,S, &
          & shellShift,aoat2,ao2sh,use_parallel=use_scc_parallel)
    end if
+   call system_clock(count=clk_end)
+   iter_time = real(clk_end - clk_start, wp) / real(clk_rate, wp)
+   call log_scc_kernel(kernel_h1, iter_time, use_scc_parallel)
+   call restore_thread_policy(thread_policy_h1)
 
    ! ------------------------------------------------------------------------
    ! solve HC=SCemo(X,P are scratch/store)
@@ -497,11 +505,16 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    !call solve(fulldiag,ndim,ihomo,scfconv,H,S,X,P,emo,fail)
 
+   call setup_scc_thread_policy(ndim, thread_policy_diag, use_scc_parallel, blas_threads_target, kernel_id=kernel_diag)
+   call system_clock(count=clk_start)
    call solver%fact_solve(env, H, S_factorized, emo)
+   call system_clock(count=clk_end)
+   iter_time = real(clk_end - clk_start, wp) / real(clk_rate, wp)
+   call log_scc_kernel(kernel_diag, iter_time, use_scc_parallel)
+   call restore_thread_policy(thread_policy_diag)
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
-      call restore_thread_policy(thread_policy)
       return
    endif
 
@@ -537,7 +550,13 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    end if
 
    ! density matrix
+   call setup_scc_thread_policy(ndim, thread_policy_dmat, use_scc_parallel, blas_threads_target, kernel_id=kernel_dmat)
+   call system_clock(count=clk_start)
    call dmat(ndim,focc,H,P)
+   call system_clock(count=clk_end)
+   iter_time = real(clk_end - clk_start, wp) / real(clk_rate, wp)
+   call log_scc_kernel(kernel_dmat, iter_time, use_scc_parallel)
+   call restore_thread_policy(thread_policy_dmat)
 
    ! new q
    call mpopsh(n,ndim,nshell,ao2sh,S,P,qsh)
@@ -651,10 +670,9 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
 !  end of SCC convergence part
 
-   call system_clock(count=clk_end)
-   iter_time = real(clk_end - clk_start, wp) / real(clk_rate, wp)
+   call system_clock(count=iter_clk_end)
+   iter_time = real(iter_clk_end - iter_clk_start, wp) / real(clk_rate, wp)
    call log_scc_iteration(iter_time, use_scc_parallel)
-   call restore_thread_policy(thread_policy)
 
 !! ------------------------------------------------------------------------
    if (econverged.and.qconverged) then
@@ -668,7 +686,6 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    jter = jter + min(iter,thisiter)
    fail = .not.converged
-   call restore_thread_policy(thread_policy)
 
 end subroutine scc
 

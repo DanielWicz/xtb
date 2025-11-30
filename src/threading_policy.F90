@@ -18,6 +18,11 @@ module xtb_threading_policy
    real(wp), parameter :: adapt_alpha          = 0.30_wp
    real(wp), parameter :: adapt_gap            = 0.15_wp
    integer, parameter  :: adapt_cooldown_iters = 2
+   integer, parameter :: kernel_count          = 4
+   integer, parameter :: kernel_h1             = 1
+   integer, parameter :: kernel_dmat           = 2
+   integer, parameter :: kernel_diag           = 3
+   integer, parameter :: kernel_wiberg         = 4
 
    type :: ThreadingPolicy
       integer :: omp_threads_before         = 1
@@ -38,13 +43,17 @@ module xtb_threading_policy
    end type AdaptiveStats
 
    type(AdaptiveStats), save :: adapt_stats
+   type(AdaptiveStats), save :: adapt_kernel(kernel_count)
 
    public :: ThreadingPolicy
    public :: setup_scc_thread_policy
    public :: restore_thread_policy
    public :: should_use_scc_parallel
+    ! kernel IDs
+   public :: kernel_h1, kernel_dmat, kernel_diag, kernel_wiberg
    public :: getenv_int, getenv_real
    public :: log_scc_iteration
+   public :: log_scc_kernel
 
 #if defined XTB_LAPACK_MKL
    interface
@@ -200,6 +209,57 @@ integer function pick_adaptive_mode(default_parallel) result(mode)
    end if
 end function pick_adaptive_mode
 
+integer function pick_adaptive_mode_kernel(kernel_id, default_parallel) result(mode)
+   integer, intent(in) :: kernel_id
+   logical, intent(in) :: default_parallel
+   real(wp) :: faster, slower, delta
+   integer  :: env_adapt
+
+   env_adapt = getenv_int('XTB_SCC_ADAPT', 0)
+   if (env_adapt == 0) then
+      mode = merge(1, 2, default_parallel)
+      return
+   end if
+
+   if (kernel_id < 1 .or. kernel_id > kernel_count) then
+      mode = merge(1, 2, default_parallel)
+      return
+   end if
+
+   if (adapt_kernel(kernel_id)%last_mode == 0) &
+      adapt_kernel(kernel_id)%last_mode = merge(1, 2, default_parallel)
+
+   if (adapt_kernel(kernel_id)%avg_omp < 0.0_wp .or. &
+       adapt_kernel(kernel_id)%avg_blas < 0.0_wp) then
+      mode = adapt_kernel(kernel_id)%last_mode
+      return
+   end if
+
+   faster = min(adapt_kernel(kernel_id)%avg_omp, adapt_kernel(kernel_id)%avg_blas)
+   slower = max(adapt_kernel(kernel_id)%avg_omp, adapt_kernel(kernel_id)%avg_blas)
+   delta  = slower - faster
+
+   if (adapt_kernel(kernel_id)%cooldown > 0) then
+      mode = adapt_kernel(kernel_id)%last_mode
+      return
+   end if
+
+   if (delta > adapt_gap * faster) then
+      if (adapt_kernel(kernel_id)%avg_omp < adapt_kernel(kernel_id)%avg_blas) then
+         mode = 1
+      else
+         mode = 2
+      end if
+   else
+      mode = adapt_kernel(kernel_id)%last_mode
+   end if
+
+   if (mode /= adapt_kernel(kernel_id)%last_mode) then
+      adapt_kernel(kernel_id)%cooldown = adapt_cooldown_iters
+      adapt_kernel(kernel_id)%last_mode = mode
+   end if
+end function pick_adaptive_mode_kernel
+
 !> Decide how many BLAS threads to use for SCC builds.
 !  Honors optional caps to keep work inside a socket and avoid oversubscription.
 integer function select_blas_threads(use_parallel, outer_threads, allow_nested) result(target)
@@ -246,11 +306,12 @@ integer function select_blas_threads(use_parallel, outer_threads, allow_nested) 
    target = max(target, 1)
 end function select_blas_threads
 
-subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_target)
+subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_target, kernel_id)
    integer, intent(in)              :: ndim
    type(ThreadingPolicy), intent(inout) :: policy
    logical, intent(out)             :: use_parallel
    integer, intent(out)             :: blas_threads_target
+   integer, intent(in), optional    :: kernel_id
 
    integer :: outer_threads
    logical :: allow_nested_blas
@@ -262,7 +323,13 @@ subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_targ
    use_parallel = should_use_scc_parallel(ndim)
    allow_nested_blas = getenv_int('XTB_SCC_ALLOW_NESTED_BLAS', 0) /= 0
    mode = getenv_int('XTB_SCC_MODE', 0)
-   if (mode == 0) mode = pick_adaptive_mode(use_parallel)
+   if (mode == 0) then
+      if (present(kernel_id)) then
+         mode = pick_adaptive_mode_kernel(kernel_id, use_parallel)
+      else
+         mode = pick_adaptive_mode(use_parallel)
+      end if
+   end if
 
    select case (mode)
    case (1)
@@ -275,7 +342,11 @@ subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_targ
       continue
    end select
 
-   adapt_stats%last_mode = merge(1, 2, use_parallel)
+   if (present(kernel_id)) then
+      adapt_kernel(kernel_id)%last_mode = merge(1, 2, use_parallel)
+   else
+      adapt_stats%last_mode = merge(1, 2, use_parallel)
+   end if
 
    blas_threads_target = select_blas_threads(use_parallel, outer_threads, allow_nested_blas)
 
@@ -433,5 +504,29 @@ subroutine log_scc_iteration(iter_time, used_parallel)
 
    if (adapt_stats%cooldown > 0) adapt_stats%cooldown = adapt_stats%cooldown - 1
 end subroutine log_scc_iteration
+
+subroutine log_scc_kernel(kernel_id, iter_time, used_parallel)
+   integer, intent(in) :: kernel_id
+   real(wp), intent(in) :: iter_time
+   logical, intent(in)  :: used_parallel
+
+   if (getenv_int('XTB_SCC_ADAPT', 0) == 0) return
+   if (iter_time <= 0.0_wp) return
+   if (kernel_id < 1 .or. kernel_id > kernel_count) return
+
+   if (used_parallel) then
+      if (adapt_kernel(kernel_id)%avg_omp < 0.0_wp) adapt_kernel(kernel_id)%avg_omp = iter_time
+      adapt_kernel(kernel_id)%avg_omp = (1.0_wp - adapt_alpha) * adapt_kernel(kernel_id)%avg_omp + adapt_alpha * iter_time
+      adapt_kernel(kernel_id)%n_omp = adapt_kernel(kernel_id)%n_omp + 1
+      adapt_kernel(kernel_id)%last_mode = 1
+   else
+      if (adapt_kernel(kernel_id)%avg_blas < 0.0_wp) adapt_kernel(kernel_id)%avg_blas = iter_time
+      adapt_kernel(kernel_id)%avg_blas = (1.0_wp - adapt_alpha) * adapt_kernel(kernel_id)%avg_blas + adapt_alpha * iter_time
+      adapt_kernel(kernel_id)%n_blas = adapt_kernel(kernel_id)%n_blas + 1
+      adapt_kernel(kernel_id)%last_mode = 2
+   end if
+
+   if (adapt_kernel(kernel_id)%cooldown > 0) adapt_kernel(kernel_id)%cooldown = adapt_kernel(kernel_id)%cooldown - 1
+end subroutine log_scc_kernel
 
 end module xtb_threading_policy
