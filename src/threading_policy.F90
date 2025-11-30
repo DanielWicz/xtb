@@ -171,7 +171,7 @@ integer function pick_adaptive_mode(default_parallel) result(mode)
    real(wp) :: faster, slower, delta
    integer  :: env_adapt
 
-   env_adapt = getenv_int('XTB_SCC_ADAPT', 0)
+   env_adapt = getenv_int('XTB_SCC_ADAPT', 1)
    if (env_adapt == 0) then
       mode = merge(1, 2, default_parallel)
       return
@@ -215,7 +215,7 @@ integer function pick_adaptive_mode_kernel(kernel_id, default_parallel) result(m
    real(wp) :: faster, slower, delta
    integer  :: env_adapt
 
-   env_adapt = getenv_int('XTB_SCC_ADAPT', 0)
+   env_adapt = getenv_int('XTB_SCC_ADAPT', 1)
    if (env_adapt == 0) then
       mode = merge(1, 2, default_parallel)
       return
@@ -487,7 +487,7 @@ subroutine log_scc_iteration(iter_time, used_parallel)
    real(wp), intent(in) :: iter_time
    logical, intent(in)  :: used_parallel
 
-   if (getenv_int('XTB_SCC_ADAPT', 0) == 0) return
+   if (getenv_int('XTB_SCC_ADAPT', 1) == 0) return
    if (iter_time <= 0.0_wp) return
 
    if (used_parallel) then
@@ -510,7 +510,7 @@ subroutine log_scc_kernel(kernel_id, iter_time, used_parallel)
    real(wp), intent(in) :: iter_time
    logical, intent(in)  :: used_parallel
 
-   if (getenv_int('XTB_SCC_ADAPT', 0) == 0) return
+   if (getenv_int('XTB_SCC_ADAPT', 1) == 0) return
    if (iter_time <= 0.0_wp) return
    if (kernel_id < 1 .or. kernel_id > kernel_count) return
 
