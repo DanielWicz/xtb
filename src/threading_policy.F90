@@ -132,11 +132,19 @@ integer function select_blas_threads(use_parallel, outer_threads, allow_nested) 
    integer :: min_blas
    integer :: max_blas
    integer :: socket_cap
+   integer :: socket_count
    integer :: hardware_cap
    integer :: user_cap
 
    hardware_cap = hardware_concurrency()
    socket_cap   = getenv_int('XTB_SCC_SOCKET_THREADS', hardware_cap)
+   socket_count = getenv_int('XTB_SCC_SOCKET_COUNT', 0)
+   if (socket_count > 0) then
+      ! Optional hint: provide number of sockets to cap BLAS threads per socket
+      ! without hard-coding an explicit thread count. Falls back to
+      ! XTB_SCC_SOCKET_THREADS when unset.
+      socket_cap = max(1, hardware_cap / socket_count)
+   end if
    user_cap     = max(outer_threads, 1)
 
    force_blas   = getenv_int('XTB_SCC_FORCE_BLAS_THREADS', 0)
