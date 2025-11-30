@@ -40,6 +40,10 @@ module xtb_threading_policy
          import :: c_int
          integer(c_int), value :: nthreads
       end subroutine mkl_set_num_threads
+      subroutine mkl_set_dynamic(flag) bind(C, name='mkl_set_dynamic')
+         import :: c_int
+         integer(c_int), value :: flag
+      end subroutine mkl_set_dynamic
    end interface
 #elif defined XTB_LAPACK_ARMPL
    ! Arm Performance Libraries: rely on OpenMP controls (no OpenBLAS shim needed)
@@ -95,6 +99,7 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
    real(wp) :: work_est
    logical  :: force_parallel
    logical  :: force_serial
+   integer  :: force_mode
    integer  :: outer_threads
 
    dim_threshold   = getenv_int('XTB_SCC_DIM_THRESHOLD', dim_threshold_default)
@@ -102,6 +107,7 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
    work_threshold  = getenv_real('XTB_SCC_WORK_THRESHOLD', work_threshold_default)
    force_parallel  = getenv_int('XTB_SCC_FORCE_PARALLEL', 0) /= 0
    force_serial    = getenv_int('XTB_SCC_FORCE_SERIAL', 0) /= 0
+   force_mode      = getenv_int('XTB_SCC_MODE', 0)  ! 0=auto, 1=force OMP, 2=force BLAS
    outer_threads   = current_omp_threads()
 
    if (force_parallel) then
@@ -113,6 +119,17 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
       use_parallel = .false.
       return
    end if
+
+   select case (force_mode)
+   case (1)
+      use_parallel = outer_threads > 1
+      return
+   case (2)
+      use_parallel = .false.
+      return
+   case default
+      continue
+   end select
 
    if (outer_threads < 2) then
       use_parallel = .false.
@@ -185,6 +202,12 @@ subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_targ
 
    use_parallel = should_use_scc_parallel(ndim)
    allow_nested_blas = getenv_int('XTB_SCC_ALLOW_NESTED_BLAS', 0) /= 0
+   if (getenv_int('XTB_SCC_MODE', 0) == 2) then
+      ! Force BLAS-driven parallelism: keep OpenMP regions serial and
+      ! permit BLAS to use the full thread budget.
+      use_parallel = .false.
+      allow_nested_blas = .true.
+   end if
    blas_threads_target = select_blas_threads(use_parallel, outer_threads, allow_nested_blas)
 
    policy%omp_threads_before = outer_threads
@@ -245,6 +268,7 @@ subroutine set_blas_threads(nthreads, policy)
 
 #if defined XTB_LAPACK_MKL
    policy%blas_threads_before = mkl_get_max_threads()
+   call mkl_set_dynamic(int(getenv_int('XTB_SCC_MKL_DYNAMIC', 0), c_int))
    call mkl_set_num_threads(int(nthreads, c_int))
    policy%blas_changed = .true.
 #elif defined XTB_LAPACK_ARMPL
