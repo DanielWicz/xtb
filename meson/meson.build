@@ -196,6 +196,7 @@ elif lapack_vendor == 'custom'
   lib_deps += custom_deps
 
 else
+  lapack_vendor = 'netlib'
   lapack_dep = dependency('lapack', required: false)
   if not lapack_dep.found()
     lapack_dep = fc.find_library('lapack')
@@ -206,6 +207,20 @@ else
     blas_dep = fc.find_library('blas')
   endif
   lib_deps += blas_dep
+endif
+
+lapack_defs = []
+if lapack_vendor == 'mkl' or lapack_vendor == 'mkl-rt'
+  lapack_defs += ['-DXTB_LAPACK_MKL']
+elif lapack_vendor == 'openblas'
+  lapack_defs += ['-DXTB_LAPACK_OPENBLAS']
+elif lapack_vendor == 'custom'
+  lapack_defs += ['-DXTB_LAPACK_CUSTOM']
+elif lapack_vendor == 'netlib'
+  lapack_defs += ['-DXTB_LAPACK_NETLIB']
+endif
+if lapack_defs.length() > 0
+  add_project_arguments(lapack_defs, language: 'fortran')
 endif
 
 if get_option('nvtx')

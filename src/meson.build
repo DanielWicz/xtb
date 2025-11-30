@@ -134,6 +134,7 @@ srcs += files(
   'scan_driver.f90',
   'scanparam.f90',
   'scc_core.f90',
+  'threading_policy.F90',
   'scf_module.F90',
   'screening.f90',
   'set_module.f90',

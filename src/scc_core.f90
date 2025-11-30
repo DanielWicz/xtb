@@ -29,6 +29,8 @@ module xtb_scc_core
    use xtb_xtb_dispersion
    use xtb_xtb_multipole
    use xtb_broyden
+   use xtb_threading_policy, only : ThreadingPolicy, &
+      & setup_scc_thread_policy, restore_thread_policy
    implicit none
    private
 
@@ -108,7 +110,7 @@ end subroutine build_h0
 
 !> build isotropic H1/Fockian
 subroutine buildIsotropicH1(n, at, ndim, nshell, nmat, matlist, H, &
-      & H0, S, shellShift, aoat2, ao2sh)
+      & H0, S, shellShift, aoat2, ao2sh, use_parallel)
    use xtb_mctc_convert, only : autoev,evtoau
    integer, intent(in)  :: n
    integer, intent(in)  :: at(n)
@@ -122,18 +124,22 @@ subroutine buildIsotropicH1(n, at, ndim, nshell, nmat, matlist, H, &
    integer, intent(in)  :: aoat2(ndim)
    integer, intent(in)  :: ao2sh(ndim)
    real(wp),intent(out) :: H(ndim,ndim)
+   logical, intent(in), optional :: use_parallel
 
    integer  :: m,i,j,k
    integer  :: ishell,jshell
    integer  :: ii,jj,kk
    real(wp) :: dum
    real(wp) :: eh1,t8,t9,tgb,h1
+   logical  :: do_parallel
 
    H = 0.0_wp
+   do_parallel = .true.
+   if (present(use_parallel)) do_parallel = use_parallel
 
-   !$omp parallel do default(none) &
+   !$omp parallel do if(do_parallel) default(none) &
    !$omp private(m, i, j, k, ishell, jshell, eh1, H1) &
-   !$omp shared(H, H0, S, matlist, nmat, ao2sh, shellShift) &
+   !$omp shared(H, H0, S, matlist, nmat, ao2sh, shellShift, do_parallel) &
    !$omp schedule(static)
    do m = 1, nmat
       i = matlist(1,m)
@@ -152,7 +158,8 @@ end subroutine buildIsotropicH1
 
 !> build isotropic & anisotropic H1/Fockian
 subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
-                         H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh)
+                         H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh, &
+                         use_parallel)
    use xtb_mctc_convert, only : autoev,evtoau
    integer, intent(in)  :: n
    integer, intent(in)  :: at(n)
@@ -175,17 +182,22 @@ subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mql
    integer, intent(in)  :: aoat2(ndim)
    integer, intent(in)  :: ao2sh(ndim)
    real(wp),intent(inout) :: H(ndim,ndim)
+   logical, intent(in), optional :: use_parallel
 
    integer, external :: lin
    integer  :: m,i,j,k,l
    integer  :: ii,jj,kk
    integer  :: ishell,jshell
    real(wp) :: dum,eh1,t8,t9,tgb
+   logical :: do_parallel
 
-   !$omp parallel default(none) &
+   do_parallel = .true.
+   if (present(use_parallel)) do_parallel = use_parallel
+
+   !$omp parallel if(do_parallel) default(none) &
    !$omp private(m, i, j, k, l, ii, jj, dum, eh1) &
    !$omp shared(matlist, mdlst, mqlst, ao2sh, aoat2, nmat, ndp, nqp) &
-   !$omp shared(S, H, H0, shellShift, vs, vd, vq, dpint, qpint)
+   !$omp shared(S, H, H0, shellShift, vs, vd, vq, dpint, qpint, do_parallel)
 
    !> overlap dependent terms
    !$omp do schedule(static)
@@ -407,6 +419,11 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    logical  :: converged
    logical  :: econverged
    logical  :: qconverged
+   logical  :: use_scc_parallel
+   integer  :: blas_threads_target
+   type(ThreadingPolicy) :: thread_policy
+
+   call setup_scc_thread_policy(ndim, thread_policy, use_scc_parallel, blas_threads_target)
 
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
@@ -456,10 +473,11 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    ! build the charge dependent Hamiltonian
    if (present(aes)) then
       call buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mqlst,&
-         & H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh)
+         & H,H0,S,shellShift,dpint,qpint,vs,vd,vq,aoat2,ao2sh, &
+         & use_parallel=use_scc_parallel)
    else
       call buildIsotropicH1(n,at,ndim,nshell,nmat,matlist,H,H0,S, &
-         & shellShift,aoat2,ao2sh)
+         & shellShift,aoat2,ao2sh,use_parallel=use_scc_parallel)
    end if
 
    ! ------------------------------------------------------------------------
@@ -476,6 +494,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    call env%check(fail)
    if(fail)then
       call env%error("Diagonalization of Hamiltonian failed", source)
+      call restore_thread_policy(thread_policy)
       return
    endif
 
@@ -636,6 +655,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    jter = jter + min(iter,thisiter)
    fail = .not.converged
+   call restore_thread_policy(thread_policy)
 
 end subroutine scc
 
@@ -1205,24 +1225,29 @@ subroutine dmat(ndim,focc,C,P)
 end subroutine dmat
 
 ! Reference: I. Mayer, "Simple Theorems, Proofs, and Derivations in Quantum Chemistry", formula (7.35)
-subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2)
+subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
    integer, intent(in)  :: n,ndim,at(n)
    real(wp),intent(in)  :: xyz(3,n)
    real(wp),intent(in)  :: P(ndim,ndim)
    real(wp),intent(in)  :: S(ndim,ndim)
    real(wp),intent(out) :: wb (n,n)
    integer, intent(in)  :: fila2(:,:)
+   logical, intent(in), optional :: use_parallel
 
    real(wp),allocatable :: Ptmp(:,:)
    real(wp) xsum,rab
    integer i,j,k,m
+   logical :: do_parallel
 
    allocate(Ptmp(ndim,ndim))
    call blas_gemm('N','N',ndim,ndim,ndim,1.0d0,P,ndim,S,ndim,0.0d0,Ptmp,ndim)
    wb = 0
-   !$omp parallel do default(none) &
+   do_parallel = .true.
+   if (present(use_parallel)) do_parallel = use_parallel
+
+   !$omp parallel do if(do_parallel) default(none) &
    !$omp private(i,j,k,m,xsum,rab) &
-   !$omp shared(n,xyz,fila2,Ptmp,wb) &
+   !$omp shared(n,xyz,fila2,Ptmp,wb,do_parallel) &
    !$omp schedule(dynamic,32) collapse(2)
    do i = 1, n
       do j = 1, n
@@ -1245,7 +1270,7 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2)
 end subroutine get_wiberg
 
 ! Reference: I. Mayer, "Simple Theorems, Proofs, and Derivations in Quantum Chemistry", formula (7.36)
-subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2)
+subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
    integer, intent(in)  :: n,ndim,at(n)
    real(wp),intent(in)  :: xyz(3,n)
    real(wp),intent(in)  :: Pa(ndim,ndim)
@@ -1253,11 +1278,13 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2)
    real(wp),intent(in)  :: S(ndim,ndim)
    real(wp),intent(out) :: wb (n,n)
    integer, intent(in)  :: fila2(:,:)
+   logical, intent(in), optional :: use_parallel
 
    real(wp),allocatable :: Ptmp_a(:,:)
    real(wp),allocatable :: Ptmp_b(:,:)
    real(wp) xsum,rab
    integer i,j,k,m
+   logical :: do_parallel
 
    allocate(Ptmp_a(ndim,ndim))
    allocate(Ptmp_b(ndim,ndim))
@@ -1269,9 +1296,12 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2)
    call blas_gemm('N','N',ndim,ndim,ndim,1.0_wp,Pb,ndim,S,ndim,0.0_wp,Ptmp_b,ndim)
    
    wb = 0
-   !$omp parallel do default(none) &
+   do_parallel = .true.
+   if (present(use_parallel)) do_parallel = use_parallel
+
+   !$omp parallel do if(do_parallel) default(none) &
    !$omp private(i,j,k,m,xsum,rab) &
-   !$omp shared(n,xyz,fila2,Ptmp_a,Ptmp_b,wb) &
+   !$omp shared(n,xyz,fila2,Ptmp_a,Ptmp_b,wb,do_parallel) &
    !$omp schedule(dynamic,32) collapse(2)
    do i = 1, n
       do j = 1, n
