@@ -1216,7 +1216,6 @@ subroutine dmat(ndim,focc,C,P)
       ! Encourage dual 128-bit pipelines (SVE/AVX) for the column fill; no extra threads.
       !$omp simd
       !GCC$ unroll 8
-      !DIR$ UNROLL 8
       do i=1,ndim
          Ptmp(i,m)=C(i,m)*focc(m)
       enddo
@@ -1276,7 +1275,6 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
                tmp = 0.0_wp
                !$omp simd reduction(+:tmp)
                !GCC$ unroll 8
-               !DIR$ UNROLL 8
                do m = fila2(1,j), fila2(2,j) ! AOs on atom j
                   tmp = tmp + Ptmp(k,m)*Ptmp(m,k)
                enddo
@@ -1345,7 +1343,6 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
                tmp = 0.0_wp
                !$omp simd reduction(+:tmp)
                !GCC$ unroll 8
-               !DIR$ UNROLL 8
                do m = fila2(1,j), fila2(2,j) ! AOs on atom j
                   tmp = tmp + Ptmp_a(k,m)*Ptmp_a(m,k) + Ptmp_b(k,m)*Ptmp_b(m,k)
                enddo
