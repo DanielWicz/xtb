@@ -25,6 +25,7 @@ module xtb_xtb_hamiltonian
    use xtb_lin
    use xtb_scc_core, only : shellPoly, h0scal
    use xtb_grad_core, only : dshellPoly
+   use xtb_threading_policy, only : should_use_scc_parallel, getenv_int
    implicit none
    private
 
@@ -197,6 +198,7 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    integer itt(0:3)
    parameter(itt  =(/0,1,4,10/))
    real(wp) :: saw(10)
+   logical  :: do_parallel
 
 
    ! integrals
@@ -208,7 +210,19 @@ subroutine build_SDQH0(nShell, hData, nat, at, nbf, nao, xyz, trans, selfEnergy,
    ! --- Aufpunkt for moment operator
    point = 0.0_wp
 
-   !$omp parallel do default(none) &
+   ! Heuristic: avoid parallel region if BLAS is already using many threads
+   ! or if user forces behaviour via XTB_H0_PARALLEL (0=off,1=on).
+   do_parallel = should_use_scc_parallel(nao)
+   select case (getenv_int('XTB_H0_PARALLEL', -1))
+   case (0)
+      do_parallel = .false.
+   case (1:)
+      do_parallel = .true.
+   case default
+      continue
+   end select
+
+   !$omp parallel do if(do_parallel) default(none) &
    !$omp shared(nat, xyz, at, nShell, hData, selfEnergy, caoshell, saoshell, &
    !$omp& nprim, primcount, alp, cont, intcut, trans, point) &
    !$omp private (iat,jat,izp,ci,ra,rb,saw, &
