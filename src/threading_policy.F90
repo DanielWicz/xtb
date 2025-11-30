@@ -40,6 +40,8 @@ module xtb_threading_policy
          integer(c_int), value :: nthreads
       end subroutine mkl_set_num_threads
    end interface
+#elif defined XTB_LAPACK_ARMPL
+   ! Arm Performance Libraries: rely on OpenMP controls (no OpenBLAS shim needed)
 #elif defined XTB_LAPACK_OPENBLAS
    interface
       subroutine openblas_set_num_threads(nthreads) bind(C, name='openblas_set_num_threads')
@@ -233,6 +235,15 @@ subroutine set_blas_threads(nthreads, policy)
    policy%blas_threads_before = mkl_get_max_threads()
    call mkl_set_num_threads(int(nthreads, c_int))
    policy%blas_changed = .true.
+#elif defined XTB_LAPACK_ARMPL
+   policy%blas_threads_before = current_omp_threads()
+#ifdef _OPENMP
+   call omp_set_num_threads(nthreads)
+   policy%omp_changed  = .true.
+   policy%blas_changed = .true.
+#else
+   policy%blas_changed = .false.
+#endif
 #elif defined XTB_LAPACK_OPENBLAS
    policy%blas_threads_before = openblas_get_num_threads()
    call openblas_set_num_threads(int(nthreads, c_int))
@@ -252,6 +263,12 @@ subroutine reset_blas_threads(policy)
 
 #if defined XTB_LAPACK_MKL
    call mkl_set_num_threads(int(policy%blas_threads_before, c_int))
+#elif defined XTB_LAPACK_ARMPL
+#ifdef _OPENMP
+   if (policy%omp_changed) then
+      call omp_set_num_threads(policy%omp_threads_before)
+   end if
+#endif
 #elif defined XTB_LAPACK_OPENBLAS
    call openblas_set_num_threads(int(policy%blas_threads_before, c_int))
 #elif defined _OPENMP

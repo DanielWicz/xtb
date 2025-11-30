@@ -102,8 +102,7 @@ if(XTB_LAPACK_VENDOR STREQUAL "MKL")
 elseif(XTB_LAPACK_VENDOR STREQUAL "OPENBLAS")
   add_compile_definitions(XTB_LAPACK_OPENBLAS)
 elseif(XTB_LAPACK_VENDOR STREQUAL "ARMPL")
-  # Arm Performance Libraries use OpenBLAS-compatible threading knobs
-  add_compile_definitions(XTB_LAPACK_OPENBLAS)
+  # Arm Performance Libraries
   add_compile_definitions(XTB_LAPACK_ARMPL)
 else()
   add_compile_definitions(XTB_LAPACK_NETLIB)
