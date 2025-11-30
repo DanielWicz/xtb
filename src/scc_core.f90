@@ -31,7 +31,7 @@ module xtb_scc_core
    use xtb_broyden
    use xtb_threading_policy, only : ThreadingPolicy, &
       & setup_scc_thread_policy, restore_thread_policy, getenv_int, &
-      & should_use_scc_parallel
+      & should_use_scc_parallel, log_scc_iteration
    implicit none
    private
 
@@ -422,9 +422,12 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    logical  :: qconverged
    logical  :: use_scc_parallel
    integer  :: blas_threads_target
+   integer  :: clk_rate, clk_start, clk_end
+   real(wp) :: iter_time
    type(ThreadingPolicy) :: thread_policy
 
-   call setup_scc_thread_policy(ndim, thread_policy, use_scc_parallel, blas_threads_target)
+   call system_clock(count_rate=clk_rate)
+   if (clk_rate <= 0) clk_rate = 1
 
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
@@ -450,6 +453,9 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 !! ------------------------------------------------------------------------
 !  Iteration entry point
    scc_iterator: do iter = 1, thisiter
+
+   call setup_scc_thread_policy(ndim, thread_policy, use_scc_parallel, blas_threads_target)
+   call system_clock(count=clk_start)
 
    ! set up ES potential
    atomicShift(:) = 0.0_wp
@@ -644,6 +650,11 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    qq=q
 
 !  end of SCC convergence part
+
+   call system_clock(count=clk_end)
+   iter_time = real(clk_end - clk_start, wp) / real(clk_rate, wp)
+   call log_scc_iteration(iter_time, use_scc_parallel)
+   call restore_thread_policy(thread_policy)
 
 !! ------------------------------------------------------------------------
    if (econverged.and.qconverged) then

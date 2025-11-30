@@ -15,6 +15,9 @@ module xtb_threading_policy
    integer, parameter :: dim_threshold_default = 800
    integer, parameter :: dim_min_default       = 96
    real(wp), parameter :: work_threshold_default = 1.0e8_wp
+   real(wp), parameter :: adapt_alpha          = 0.30_wp
+   real(wp), parameter :: adapt_gap            = 0.15_wp
+   integer, parameter  :: adapt_cooldown_iters = 2
 
    type :: ThreadingPolicy
       integer :: omp_threads_before         = 1
@@ -25,11 +28,23 @@ module xtb_threading_policy
       logical :: max_active_levels_changed  = .false.
    end type ThreadingPolicy
 
+   type :: AdaptiveStats
+      real(wp) :: avg_omp   = -1.0_wp
+      real(wp) :: avg_blas  = -1.0_wp
+      integer  :: n_omp     = 0
+      integer  :: n_blas    = 0
+      integer  :: last_mode = 0  ! 1=OMP, 2=BLAS
+      integer  :: cooldown  = 0
+   end type AdaptiveStats
+
+   type(AdaptiveStats), save :: adapt_stats
+
    public :: ThreadingPolicy
    public :: setup_scc_thread_policy
    public :: restore_thread_policy
    public :: should_use_scc_parallel
    public :: getenv_int, getenv_real
+   public :: log_scc_iteration
 
 #if defined XTB_LAPACK_MKL
    interface
@@ -142,6 +157,49 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
       &           (work_est < work_threshold)
 end function should_use_scc_parallel
 
+integer function pick_adaptive_mode(default_parallel) result(mode)
+   logical, intent(in) :: default_parallel
+   real(wp) :: faster, slower, delta
+   integer  :: env_adapt
+
+   env_adapt = getenv_int('XTB_SCC_ADAPT', 0)
+   if (env_adapt == 0) then
+      mode = merge(1, 2, default_parallel)
+      return
+   end if
+
+   if (adapt_stats%last_mode == 0) adapt_stats%last_mode = merge(1, 2, default_parallel)
+
+   if (adapt_stats%avg_omp < 0.0_wp .or. adapt_stats%avg_blas < 0.0_wp) then
+      mode = adapt_stats%last_mode
+      return
+   end if
+
+   faster = min(adapt_stats%avg_omp, adapt_stats%avg_blas)
+   slower = max(adapt_stats%avg_omp, adapt_stats%avg_blas)
+   delta  = slower - faster
+
+   if (adapt_stats%cooldown > 0) then
+      mode = adapt_stats%last_mode
+      return
+   end if
+
+   if (delta > adapt_gap * faster) then
+      if (adapt_stats%avg_omp < adapt_stats%avg_blas) then
+         mode = 1
+      else
+         mode = 2
+      end if
+   else
+      mode = adapt_stats%last_mode
+   end if
+
+   if (mode /= adapt_stats%last_mode) then
+      adapt_stats%cooldown = adapt_cooldown_iters
+      adapt_stats%last_mode = mode
+   end if
+end function pick_adaptive_mode
+
 !> Decide how many BLAS threads to use for SCC builds.
 !  Honors optional caps to keep work inside a socket and avoid oversubscription.
 integer function select_blas_threads(use_parallel, outer_threads, allow_nested) result(target)
@@ -196,18 +254,29 @@ subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_targ
 
    integer :: outer_threads
    logical :: allow_nested_blas
+   integer :: mode
 
    outer_threads = current_omp_threads()
    if (outer_threads < 1) outer_threads = 1
 
    use_parallel = should_use_scc_parallel(ndim)
    allow_nested_blas = getenv_int('XTB_SCC_ALLOW_NESTED_BLAS', 0) /= 0
-   if (getenv_int('XTB_SCC_MODE', 0) == 2) then
-      ! Force BLAS-driven parallelism: keep OpenMP regions serial and
-      ! permit BLAS to use the full thread budget.
+   mode = getenv_int('XTB_SCC_MODE', 0)
+   if (mode == 0) mode = pick_adaptive_mode(use_parallel)
+
+   select case (mode)
+   case (1)
+      use_parallel = outer_threads > 1
+      allow_nested_blas = .false.
+   case (2)
       use_parallel = .false.
       allow_nested_blas = .true.
-   end if
+   case default
+      continue
+   end select
+
+   adapt_stats%last_mode = merge(1, 2, use_parallel)
+
    blas_threads_target = select_blas_threads(use_parallel, outer_threads, allow_nested_blas)
 
    policy%omp_threads_before = outer_threads
@@ -342,5 +411,27 @@ integer function current_max_active_levels() result(levels)
    levels = 1
 #endif
 end function current_max_active_levels
+
+subroutine log_scc_iteration(iter_time, used_parallel)
+   real(wp), intent(in) :: iter_time
+   logical, intent(in)  :: used_parallel
+
+   if (getenv_int('XTB_SCC_ADAPT', 0) == 0) return
+   if (iter_time <= 0.0_wp) return
+
+   if (used_parallel) then
+      if (adapt_stats%avg_omp < 0.0_wp) adapt_stats%avg_omp = iter_time
+      adapt_stats%avg_omp = (1.0_wp - adapt_alpha) * adapt_stats%avg_omp + adapt_alpha * iter_time
+      adapt_stats%n_omp = adapt_stats%n_omp + 1
+      adapt_stats%last_mode = 1
+   else
+      if (adapt_stats%avg_blas < 0.0_wp) adapt_stats%avg_blas = iter_time
+      adapt_stats%avg_blas = (1.0_wp - adapt_alpha) * adapt_stats%avg_blas + adapt_alpha * iter_time
+      adapt_stats%n_blas = adapt_stats%n_blas + 1
+      adapt_stats%last_mode = 2
+   end if
+
+   if (adapt_stats%cooldown > 0) adapt_stats%cooldown = adapt_stats%cooldown - 1
+end subroutine log_scc_iteration
 
 end module xtb_threading_policy
