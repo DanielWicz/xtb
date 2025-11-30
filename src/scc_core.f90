@@ -30,7 +30,7 @@ module xtb_scc_core
    use xtb_xtb_multipole
    use xtb_broyden
    use xtb_threading_policy, only : ThreadingPolicy, &
-      & setup_scc_thread_policy, restore_thread_policy
+      & setup_scc_thread_policy, restore_thread_policy, getenv_int
    implicit none
    private
 
@@ -1245,6 +1245,17 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
    do_parallel = .true.
    if (present(use_parallel)) do_parallel = use_parallel
 
+   ! Allow runtime override to switch bond-order accumulation off/on for
+   ! oversubscription debugging (e.g., large BLAS thread counts).
+   select case (getenv_int('XTB_WIBERG_PARALLEL', -1))
+   case (0)
+      do_parallel = .false.
+   case (1:)
+      do_parallel = .true.
+   case default
+      continue
+   end select
+
    !$omp parallel do if(do_parallel) default(none) &
    !$omp private(i,j,k,m,xsum,rab) &
    !$omp shared(n,xyz,fila2,Ptmp,wb,do_parallel) &
@@ -1298,6 +1309,16 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
    wb = 0
    do_parallel = .true.
    if (present(use_parallel)) do_parallel = use_parallel
+
+   ! Allow runtime override to avoid nested OpenMP when BLAS is heavily threaded.
+   select case (getenv_int('XTB_WIBERG_PARALLEL', -1))
+   case (0)
+      do_parallel = .false.
+   case (1:)
+      do_parallel = .true.
+   case default
+      continue
+   end select
 
    !$omp parallel do if(do_parallel) default(none) &
    !$omp private(i,j,k,m,xsum,rab) &

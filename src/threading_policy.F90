@@ -6,7 +6,8 @@ module xtb_threading_policy
    use xtb_mctc_accuracy, only : wp
 #ifdef _OPENMP
    use omp_lib,        only : omp_get_max_threads, omp_set_num_threads, &
-      &                      omp_get_max_active_levels, omp_set_max_active_levels
+      &                      omp_get_max_active_levels, omp_set_max_active_levels, &
+      &                      omp_get_num_procs
 #endif
    implicit none
    private
@@ -27,6 +28,7 @@ module xtb_threading_policy
    public :: setup_scc_thread_policy
    public :: restore_thread_policy
    public :: should_use_scc_parallel
+   public :: getenv_int, getenv_real
 
 #if defined XTB_LAPACK_MKL
    interface
@@ -87,13 +89,73 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
    integer  :: dim_threshold
    real(wp) :: work_threshold
    real(wp) :: work_est
+   logical  :: force_parallel
+   logical  :: force_serial
+   integer  :: outer_threads
 
    dim_threshold   = getenv_int('XTB_SCC_DIM_THRESHOLD', dim_threshold_default)
    work_threshold  = getenv_real('XTB_SCC_WORK_THRESHOLD', work_threshold_default)
+   force_parallel  = getenv_int('XTB_SCC_FORCE_PARALLEL', 0) /= 0
+   force_serial    = getenv_int('XTB_SCC_FORCE_SERIAL', 0) /= 0
+   outer_threads   = current_omp_threads()
+
+   if (force_parallel) then
+      use_parallel = outer_threads > 1
+      return
+   end if
+
+   if (force_serial) then
+      use_parallel = .false.
+      return
+   end if
+
+   if (outer_threads < 2) then
+      use_parallel = .false.
+      return
+   end if
+
    work_est        = real(ndim, wp) * real(ndim, wp) * real(ndim, wp)
 
    use_parallel = .not. (ndim >= dim_threshold .or. work_est >= work_threshold)
 end function should_use_scc_parallel
+
+!> Decide how many BLAS threads to use for SCC builds.
+!  Honors optional caps to keep work inside a socket and avoid oversubscription.
+integer function select_blas_threads(use_parallel, outer_threads, allow_nested) result(target)
+   logical, intent(in) :: use_parallel
+   integer, intent(in) :: outer_threads
+   logical, intent(in) :: allow_nested
+
+   integer :: force_blas
+   integer :: min_blas
+   integer :: max_blas
+   integer :: socket_cap
+   integer :: hardware_cap
+   integer :: user_cap
+
+   hardware_cap = hardware_concurrency()
+   socket_cap   = getenv_int('XTB_SCC_SOCKET_THREADS', hardware_cap)
+   user_cap     = max(outer_threads, 1)
+
+   force_blas   = getenv_int('XTB_SCC_FORCE_BLAS_THREADS', 0)
+   min_blas     = getenv_int('XTB_SCC_MIN_BLAS_THREADS', 1)
+   max_blas     = getenv_int('XTB_SCC_MAX_BLAS_THREADS', min(socket_cap, user_cap))
+
+   if (force_blas > 0) then
+      target = force_blas
+   else
+      if (use_parallel .and. .not. allow_nested) then
+         target = 1
+      else
+         target = user_cap
+      end if
+   end if
+
+   target = max(target, min_blas)
+   target = min(target, max_blas)
+   target = min(target, min(hardware_cap, socket_cap))
+   target = max(target, 1)
+end function select_blas_threads
 
 subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_target)
    integer, intent(in)              :: ndim
@@ -102,36 +164,22 @@ subroutine setup_scc_thread_policy(ndim, policy, use_parallel, blas_threads_targ
    integer, intent(out)             :: blas_threads_target
 
    integer :: outer_threads
+   logical :: allow_nested_blas
 
    outer_threads = current_omp_threads()
    if (outer_threads < 1) outer_threads = 1
 
    use_parallel = should_use_scc_parallel(ndim)
-#if defined XTB_LAPACK_MKL
-   if (use_parallel) then
-      blas_threads_target = 1
-   else
-      blas_threads_target = outer_threads
-   end if
-#elif defined XTB_LAPACK_OPENBLAS
-   if (use_parallel) then
-      blas_threads_target = 1
-   else
-      blas_threads_target = outer_threads
-   end if
-#elif defined XTB_LAPACK_CUSTOM
-   blas_threads_target = outer_threads
-#else
-   if (use_parallel) then
-      blas_threads_target = 1
-   else
-      blas_threads_target = outer_threads
-   end if
-#endif
+   allow_nested_blas = getenv_int('XTB_SCC_ALLOW_NESTED_BLAS', 0) /= 0
+   blas_threads_target = select_blas_threads(use_parallel, outer_threads, allow_nested_blas)
 
    policy%omp_threads_before = outer_threads
    policy%max_active_levels_before = current_max_active_levels()
-   call set_max_active_levels(1, policy)
+   if (.not. allow_nested_blas) then
+      call set_max_active_levels(1, policy)
+   else
+      policy%max_active_levels_changed = .false.
+   end if
    call set_blas_threads(blas_threads_target, policy)
 end subroutine setup_scc_thread_policy
 
@@ -220,6 +268,15 @@ integer function current_omp_threads() result(nthreads)
    nthreads = 1
 #endif
 end function current_omp_threads
+
+integer function hardware_concurrency() result(nproc)
+#ifdef _OPENMP
+   nproc = omp_get_num_procs()
+#else
+   nproc = 1
+#endif
+   if (nproc < 1) nproc = 1
+end function hardware_concurrency
 
 integer function current_max_active_levels() result(levels)
 #ifdef _OPENMP
