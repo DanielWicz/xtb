@@ -48,6 +48,7 @@ module xtb_threading_policy
    logical, save :: adapt_state_loaded = .false.
    integer, save :: adapt_save_interval = 25
    integer, save :: adapt_save_counter  = 0
+   logical, save :: adapt_persist       = .false.
 
    public :: ThreadingPolicy
    public :: setup_scc_thread_policy
@@ -560,12 +561,13 @@ subroutine maybe_init_adapt_state()
 
    path = getenv_string('XTB_SCC_ADAPT_STATE', '')
    adapt_state_file = trim(path)
+   adapt_persist = getenv_int('XTB_SCC_ADAPT_PERSIST', 0) /= 0
    interval = getenv_int('XTB_SCC_ADAPT_SAVE_INTERVAL', 25)
    if (interval < 1) interval = 25
    adapt_save_interval = interval
    adapt_save_counter  = 0
 
-   if (len_trim(adapt_state_file) > 0) call load_adapt_state()
+   if (adapt_persist .and. len_trim(adapt_state_file) > 0) call load_adapt_state()
 
    adapt_state_loaded = .true.
 end subroutine maybe_init_adapt_state
@@ -599,6 +601,7 @@ subroutine save_adapt_state()
    integer :: ios, unit, k
 
    if (len_trim(adapt_state_file) == 0) return
+   if (.not. adapt_persist) return
 
    inquire(iolength=unit) unit
    open(newunit=unit, file=trim(adapt_state_file), status='replace', action='write', iostat=ios)
@@ -614,6 +617,7 @@ subroutine save_adapt_state()
 end subroutine save_adapt_state
 
 subroutine maybe_save_adapt_state()
+   if (.not. adapt_persist) return
    if (len_trim(adapt_state_file) == 0) return
    adapt_save_counter = adapt_save_counter + 1
    if (adapt_save_counter >= adapt_save_interval) then
