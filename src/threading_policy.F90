@@ -13,6 +13,7 @@ module xtb_threading_policy
    private
 
    integer, parameter :: dim_threshold_default = 800
+   integer, parameter :: dim_min_default       = 96
    real(wp), parameter :: work_threshold_default = 1.0e8_wp
 
    type :: ThreadingPolicy
@@ -89,6 +90,7 @@ end function getenv_real
 logical function should_use_scc_parallel(ndim) result(use_parallel)
    integer, intent(in) :: ndim
    integer  :: dim_threshold
+   integer  :: dim_min
    real(wp) :: work_threshold
    real(wp) :: work_est
    logical  :: force_parallel
@@ -96,6 +98,7 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
    integer  :: outer_threads
 
    dim_threshold   = getenv_int('XTB_SCC_DIM_THRESHOLD', dim_threshold_default)
+   dim_min         = getenv_int('XTB_SCC_MIN_DIM',       dim_min_default)
    work_threshold  = getenv_real('XTB_SCC_WORK_THRESHOLD', work_threshold_default)
    force_parallel  = getenv_int('XTB_SCC_FORCE_PARALLEL', 0) /= 0
    force_serial    = getenv_int('XTB_SCC_FORCE_SERIAL', 0) /= 0
@@ -118,7 +121,8 @@ logical function should_use_scc_parallel(ndim) result(use_parallel)
 
    work_est        = real(ndim, wp) * real(ndim, wp) * real(ndim, wp)
 
-   use_parallel = .not. (ndim >= dim_threshold .or. work_est >= work_threshold)
+   use_parallel = (ndim >= dim_min) .and. (ndim < dim_threshold) .and. &
+      &           (work_est < work_threshold)
 end function should_use_scc_parallel
 
 !> Decide how many BLAS threads to use for SCC builds.

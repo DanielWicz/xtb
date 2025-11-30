@@ -57,6 +57,18 @@ Contributions are welcome via Github pull requests.
 - Make sure the code compiles and the tests run successful on more than
   your local machine (*e.g.* on cluster of your university).
 
+### Running the test suite
+
+The full Meson suite contains several long-running reference cases. To avoid
+spurious 30 s timeouts, run with a larger multiplier:
+
+```
+MESON_TEST_TIMEOUT_MULTIPLIER=20 meson test -C builddir
+```
+
+or equivalently `ninja -C builddir test` with the same environment variable. This
+keeps the default per-test limits short for CI while preventing local reruns.
+
 Please sign-off your commits
 
 ### For New Contributors

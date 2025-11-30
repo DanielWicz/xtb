@@ -1264,7 +1264,7 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
    !$omp parallel do if(do_parallel) default(none) &
    !$omp private(i,j,k,m,xsum,rab,tmp) &
    !$omp shared(n,xyz,fila2,Ptmp,wb,do_parallel) &
-   !$omp schedule(dynamic,32) collapse(2)
+   !$omp schedule(guided,16) collapse(2)
    do i = 1, n
       do j = 1, n
          if (j >= i) cycle
@@ -1332,7 +1332,7 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
    !$omp parallel do if(do_parallel) default(none) &
    !$omp private(i,j,k,m,xsum,rab,tmp) &
    !$omp shared(n,xyz,fila2,Ptmp_a,Ptmp_b,wb,do_parallel) &
-   !$omp schedule(dynamic,32) collapse(2)
+   !$omp schedule(guided,16) collapse(2)
    do i = 1, n
       do j = 1, n
          if (j >= i) cycle
