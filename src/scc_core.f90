@@ -30,7 +30,8 @@ module xtb_scc_core
    use xtb_xtb_multipole
    use xtb_broyden
    use xtb_threading_policy, only : ThreadingPolicy, &
-      & setup_scc_thread_policy, restore_thread_policy, getenv_int
+      & setup_scc_thread_policy, restore_thread_policy, getenv_int, &
+      & should_use_scc_parallel
    implicit none
    private
 
@@ -134,7 +135,7 @@ subroutine buildIsotropicH1(n, at, ndim, nshell, nmat, matlist, H, &
    logical  :: do_parallel
 
    H = 0.0_wp
-   do_parallel = .true.
+   do_parallel = should_use_scc_parallel(ndim)
    if (present(use_parallel)) do_parallel = use_parallel
 
    !$omp parallel do if(do_parallel) default(none) &
@@ -191,7 +192,7 @@ subroutine buildIsoAnisotropicH1(n,at,ndim,nshell,nmat,ndp,nqp,matlist,mdlst,mql
    real(wp) :: dum,eh1,t8,t9,tgb
    logical :: do_parallel
 
-   do_parallel = .true.
+   do_parallel = should_use_scc_parallel(ndim)
    if (present(use_parallel)) do_parallel = use_parallel
 
    !$omp parallel if(do_parallel) default(none) &
@@ -498,6 +499,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
       return
    endif
 
+   egap = 0.0_wp
    if(ihomo+1.le.ndim.and.ihomo.ge.1)egap=emo(ihomo+1)-emo(ihomo)
    ! automatic reset to small value
    if(egap.lt.0.1_wp.and.iter.eq.0) broydamp=0.03_wp
@@ -1211,6 +1213,10 @@ subroutine dmat(ndim,focc,C,P)
    ! acc parallel
    ! acc loop gang collapse(2)
    do m=1,ndim
+      ! Encourage dual 128-bit pipelines (SVE/AVX) for the column fill; no extra threads.
+      !$omp simd
+      !GCC$ unroll 8
+      !DIR$ UNROLL 8
       do i=1,ndim
          Ptmp(i,m)=C(i,m)*focc(m)
       enddo
@@ -1235,14 +1241,14 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
    logical, intent(in), optional :: use_parallel
 
    real(wp),allocatable :: Ptmp(:,:)
-   real(wp) xsum,rab
+   real(wp) xsum,rab,tmp
    integer i,j,k,m
    logical :: do_parallel
 
    allocate(Ptmp(ndim,ndim))
    call blas_gemm('N','N',ndim,ndim,ndim,1.0d0,P,ndim,S,ndim,0.0d0,Ptmp,ndim)
    wb = 0
-   do_parallel = .true.
+   do_parallel = should_use_scc_parallel(ndim)
    if (present(use_parallel)) do_parallel = use_parallel
 
    ! Allow runtime override to switch bond-order accumulation off/on for
@@ -1257,7 +1263,7 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
    end select
 
    !$omp parallel do if(do_parallel) default(none) &
-   !$omp private(i,j,k,m,xsum,rab) &
+   !$omp private(i,j,k,m,xsum,rab,tmp) &
    !$omp shared(n,xyz,fila2,Ptmp,wb,do_parallel) &
    !$omp schedule(dynamic,32) collapse(2)
    do i = 1, n
@@ -1267,9 +1273,14 @@ subroutine get_wiberg(n,ndim,at,xyz,P,S,wb,fila2,use_parallel)
          rab = sum((xyz(:,i) - xyz(:,j))**2)
          if(rab < 100.0_wp)then
             do k = fila2(1,i), fila2(2,i) ! AOs on atom i
+               tmp = 0.0_wp
+               !$omp simd reduction(+:tmp)
+               !GCC$ unroll 8
+               !DIR$ UNROLL 8
                do m = fila2(1,j), fila2(2,j) ! AOs on atom j
-                  xsum = xsum + Ptmp(k,m)*Ptmp(m,k)
+                  tmp = tmp + Ptmp(k,m)*Ptmp(m,k)
                enddo
+               xsum = xsum + tmp
             enddo
          endif
          wb(i,j) = xsum
@@ -1293,7 +1304,7 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
 
    real(wp),allocatable :: Ptmp_a(:,:)
    real(wp),allocatable :: Ptmp_b(:,:)
-   real(wp) xsum,rab
+   real(wp) xsum,rab,tmp
    integer i,j,k,m
    logical :: do_parallel
 
@@ -1307,7 +1318,7 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
    call blas_gemm('N','N',ndim,ndim,ndim,1.0_wp,Pb,ndim,S,ndim,0.0_wp,Ptmp_b,ndim)
    
    wb = 0
-   do_parallel = .true.
+   do_parallel = should_use_scc_parallel(ndim)
    if (present(use_parallel)) do_parallel = use_parallel
 
    ! Allow runtime override to avoid nested OpenMP when BLAS is heavily threaded.
@@ -1321,7 +1332,7 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
    end select
 
    !$omp parallel do if(do_parallel) default(none) &
-   !$omp private(i,j,k,m,xsum,rab) &
+   !$omp private(i,j,k,m,xsum,rab,tmp) &
    !$omp shared(n,xyz,fila2,Ptmp_a,Ptmp_b,wb,do_parallel) &
    !$omp schedule(dynamic,32) collapse(2)
    do i = 1, n
@@ -1331,9 +1342,14 @@ subroutine get_unrestricted_wiberg(n,ndim,at,xyz,Pa,Pb,S,wb,fila2,use_parallel)
          rab = sum((xyz(:,i) - xyz(:,j))**2)
          if(rab < 100.0_wp)then
             do k = fila2(1,i), fila2(2,i) ! AOs on atom i
+               tmp = 0.0_wp
+               !$omp simd reduction(+:tmp)
+               !GCC$ unroll 8
+               !DIR$ UNROLL 8
                do m = fila2(1,j), fila2(2,j) ! AOs on atom j
-                  xsum = xsum + Ptmp_a(k,m)*Ptmp_a(m,k) + Ptmp_b(k,m)*Ptmp_b(m,k) 
+                  tmp = tmp + Ptmp_a(k,m)*Ptmp_a(m,k) + Ptmp_b(k,m)*Ptmp_b(m,k)
                enddo
+               xsum = xsum + tmp
             enddo
          endif
          wb(i,j) = 2.0_wp*xsum
