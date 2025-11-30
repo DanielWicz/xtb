@@ -174,6 +174,28 @@ elif lapack_vendor == 'openblas'
     lib_deps += lapack_dep
   endif
 
+elif lapack_vendor == 'armpl'
+  # Prefer OpenMP LP64, then sequential LP64, then ILP64 variants
+  armpl_candidates = [
+    'armpl_lp64_mp',
+    'armpl_lp64',
+    'armpl_ilp64_mp',
+    'armpl_ilp64',
+    'armpl',
+  ]
+  armpl_dep = []
+  foreach lib: armpl_candidates
+    dep = fc.find_library(lib, required: false)
+    if dep.found()
+      armpl_dep = dep
+      break
+    endif
+  endforeach
+  if armpl_dep == []
+    error('Arm Performance Libraries not found; set PKG_CONFIG_PATH/LD_LIBRARY_PATH or use -Dcustom_libraries')
+  endif
+  lib_deps += armpl_dep
+
 elif lapack_vendor == 'custom'
   custom_deps = []
   libs = get_option('custom_libraries')
@@ -214,6 +236,8 @@ if lapack_vendor == 'mkl' or lapack_vendor == 'mkl-rt'
   lapack_defs += ['-DXTB_LAPACK_MKL']
 elif lapack_vendor == 'openblas'
   lapack_defs += ['-DXTB_LAPACK_OPENBLAS']
+elif lapack_vendor == 'armpl'
+  lapack_defs += ['-DXTB_LAPACK_ARMPL']
 elif lapack_vendor == 'custom'
   lapack_defs += ['-DXTB_LAPACK_CUSTOM']
 elif lapack_vendor == 'netlib'
