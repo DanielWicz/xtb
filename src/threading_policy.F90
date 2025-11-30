@@ -44,6 +44,10 @@ module xtb_threading_policy
 
    type(AdaptiveStats), save :: adapt_stats
    type(AdaptiveStats), save :: adapt_kernel(kernel_count)
+   character(len=256), save :: adapt_state_file = ''
+   logical, save :: adapt_state_loaded = .false.
+   integer, save :: adapt_save_interval = 25
+   integer, save :: adapt_save_counter  = 0
 
    public :: ThreadingPolicy
    public :: setup_scc_thread_policy
@@ -51,7 +55,7 @@ module xtb_threading_policy
    public :: should_use_scc_parallel
     ! kernel IDs
    public :: kernel_h1, kernel_dmat, kernel_diag, kernel_wiberg
-   public :: getenv_int, getenv_real
+   public :: getenv_int, getenv_real, getenv_string
    public :: log_scc_iteration
    public :: log_scc_kernel
 
@@ -115,6 +119,21 @@ function getenv_real(name, default) result(value)
    end if
 end function getenv_real
 
+function getenv_string(name, default) result(value)
+   character(len=*), intent(in) :: name
+   character(len=*), intent(in) :: default
+   character(len=len(default))  :: value
+   integer :: stat, lenv
+   character(len=len(default)) :: buffer
+
+   value = default
+   call get_environment_variable(name, buffer, length=lenv, status=stat)
+   if (stat == 0 .and. lenv > 0) then
+      if (lenv > len(buffer)) lenv = len(buffer)
+      value = buffer(1:lenv)
+   end if
+end function getenv_string
+
 logical function should_use_scc_parallel(ndim) result(use_parallel)
    integer, intent(in) :: ndim
    integer  :: dim_threshold
@@ -171,6 +190,7 @@ integer function pick_adaptive_mode(default_parallel) result(mode)
    real(wp) :: faster, slower, delta
    integer  :: env_adapt
 
+   call maybe_init_adapt_state()
    env_adapt = getenv_int('XTB_SCC_ADAPT', 1)
    if (env_adapt == 0) then
       mode = merge(1, 2, default_parallel)
@@ -215,6 +235,7 @@ integer function pick_adaptive_mode_kernel(kernel_id, default_parallel) result(m
    real(wp) :: faster, slower, delta
    integer  :: env_adapt
 
+   call maybe_init_adapt_state()
    env_adapt = getenv_int('XTB_SCC_ADAPT', 1)
    if (env_adapt == 0) then
       mode = merge(1, 2, default_parallel)
@@ -503,6 +524,7 @@ subroutine log_scc_iteration(iter_time, used_parallel)
    end if
 
    if (adapt_stats%cooldown > 0) adapt_stats%cooldown = adapt_stats%cooldown - 1
+   call maybe_save_adapt_state()
 end subroutine log_scc_iteration
 
 subroutine log_scc_kernel(kernel_id, iter_time, used_parallel)
@@ -526,7 +548,78 @@ subroutine log_scc_kernel(kernel_id, iter_time, used_parallel)
       adapt_kernel(kernel_id)%last_mode = 2
    end if
 
-   if (adapt_kernel(kernel_id)%cooldown > 0) adapt_kernel(kernel_id)%cooldown = adapt_kernel(kernel_id)%cooldown - 1
+  if (adapt_kernel(kernel_id)%cooldown > 0) adapt_kernel(kernel_id)%cooldown = adapt_kernel(kernel_id)%cooldown - 1
+   call maybe_save_adapt_state()
 end subroutine log_scc_kernel
+
+subroutine maybe_init_adapt_state()
+   character(len=256) :: path
+   integer :: interval
+
+   if (adapt_state_loaded) return
+
+   path = getenv_string('XTB_SCC_ADAPT_STATE', '')
+   adapt_state_file = trim(path)
+   interval = getenv_int('XTB_SCC_ADAPT_SAVE_INTERVAL', 25)
+   if (interval < 1) interval = 25
+   adapt_save_interval = interval
+   adapt_save_counter  = 0
+
+   if (len_trim(adapt_state_file) > 0) call load_adapt_state()
+
+   adapt_state_loaded = .true.
+end subroutine maybe_init_adapt_state
+
+subroutine load_adapt_state()
+   integer :: ios, unit, k
+
+   if (len_trim(adapt_state_file) == 0) return
+
+   inquire(iolength=unit) unit
+   open(newunit=unit, file=trim(adapt_state_file), status='old', action='read', iostat=ios)
+   if (ios /= 0) return
+
+   read(unit, *, iostat=ios) adapt_stats%avg_omp, adapt_stats%avg_blas, adapt_stats%n_omp, &
+      & adapt_stats%n_blas, adapt_stats%last_mode, adapt_stats%cooldown
+   if (ios /= 0) then
+      close(unit)
+      return
+   end if
+
+   do k = 1, kernel_count
+      read(unit, *, iostat=ios) adapt_kernel(k)%avg_omp, adapt_kernel(k)%avg_blas, adapt_kernel(k)%n_omp, &
+         & adapt_kernel(k)%n_blas, adapt_kernel(k)%last_mode, adapt_kernel(k)%cooldown
+      if (ios /= 0) exit
+   end do
+
+   close(unit)
+end subroutine load_adapt_state
+
+subroutine save_adapt_state()
+   integer :: ios, unit, k
+
+   if (len_trim(adapt_state_file) == 0) return
+
+   inquire(iolength=unit) unit
+   open(newunit=unit, file=trim(adapt_state_file), status='replace', action='write', iostat=ios)
+   if (ios /= 0) return
+
+   write(unit, '(2f18.10,2i8,2i4)') adapt_stats%avg_omp, adapt_stats%avg_blas, adapt_stats%n_omp, &
+      & adapt_stats%n_blas, adapt_stats%last_mode, adapt_stats%cooldown
+   do k = 1, kernel_count
+      write(unit, '(2f18.10,2i8,2i4)') adapt_kernel(k)%avg_omp, adapt_kernel(k)%avg_blas, &
+         & adapt_kernel(k)%n_omp, adapt_kernel(k)%n_blas, adapt_kernel(k)%last_mode, adapt_kernel(k)%cooldown
+   end do
+   close(unit)
+end subroutine save_adapt_state
+
+subroutine maybe_save_adapt_state()
+   if (len_trim(adapt_state_file) == 0) return
+   adapt_save_counter = adapt_save_counter + 1
+   if (adapt_save_counter >= adapt_save_interval) then
+      call save_adapt_state()
+      adapt_save_counter = 0
+   end if
+end subroutine maybe_save_adapt_state
 
 end module xtb_threading_policy
