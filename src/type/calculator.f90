@@ -24,6 +24,8 @@ module xtb_type_calculator
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
    use xtb_setparam, only : set
+   use xtb_parallel_threads, only : xtb_get_preferred_threads, xtb_record_thread_preference, &
+      & xtb_get_max_available_threads
    use omp_lib
    implicit none
 
@@ -145,8 +147,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    
    ! Adaptive load balancing variables
    integer :: n_tasks, n_threads_per_task, max_threads
+   integer :: preferred_threads, best_threads_per_task
    integer :: kat_start, kat_end, batch_size
-   real(wp) :: throughput, best_throughput
+   real(wp) :: throughput, best_throughput, initial_throughput
    logical :: optimal_found, force_serial
    integer :: n_work_items
 
@@ -156,17 +159,27 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    ! Environment settings
    call omp_set_max_active_levels(2)
    call omp_set_dynamic(.false.)
-   max_threads = omp_get_max_threads()
+   max_threads = xtb_get_max_available_threads()
+   preferred_threads = xtb_get_preferred_threads(max_threads)
 
    force_serial = .false.
    if (.not. self%threadsafe) force_serial = .true.
 
    ! Initialization for adaptive loop
    kat_start = 1
-   n_tasks = 1 
+   n_tasks = 1
    n_threads_per_task = max_threads
+   best_threads_per_task = n_threads_per_task
    best_throughput = 0.0_wp
+   initial_throughput = 0.0_wp
    optimal_found = .false.
+
+   if (force_serial) then
+      n_tasks = 1
+      n_threads_per_task = preferred_threads
+      best_threads_per_task = n_threads_per_task
+      optimal_found = .true.
+   end if
 
    ! Main loop over atoms (batched)
    do while (kat_start <= size(list))
@@ -188,7 +201,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
       if (force_serial) then
          n_tasks = 1
-         n_threads_per_task = max_threads
+         n_threads_per_task = preferred_threads
          optimal_found = .true. ! Skip tuning
       endif
 
@@ -259,6 +272,12 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       ! Adaptive Logic
       if (.not. optimal_found .and. .not. force_serial) then
          throughput = real(n_work_items, wp) / (w_batch_end - w_batch_start + 1.0e-10_wp)
+
+         if (best_throughput == 0.0_wp) then
+            best_throughput = throughput
+            initial_throughput = throughput
+            best_threads_per_task = n_threads_per_task
+         end if
          
          if (self%threadsafe .and. set%verbose) then
             write(env%unit, '(A,I0,A,I0,A,F10.4,A)') "Hessian Tuning: Tasks=", n_tasks, &
@@ -267,10 +286,11 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
          if (n_tasks == 1) then
             best_throughput = throughput
+            best_threads_per_task = n_threads_per_task
             ! Try doubling tasks if we have threads
             if (max_threads >= 2) then
                n_tasks = 2
-               n_threads_per_task = max_threads / 2
+               n_threads_per_task = max(1, max_threads / n_tasks)
             else
                optimal_found = .true.
             endif
@@ -279,17 +299,18 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
             if (throughput > best_throughput * 1.05_wp) then
                ! Improvement > 5%, keep increasing
                best_throughput = throughput
+               best_threads_per_task = n_threads_per_task
                if (n_tasks * 2 <= max_threads) then
                   n_tasks = n_tasks * 2
-                  n_threads_per_task = max_threads / n_tasks
+                  n_threads_per_task = max(1, max_threads / n_tasks)
                else
                   optimal_found = .true.
                endif
             else
                ! No significant improvement or degradation
                ! Revert to previous config (which was safer/better)
-               n_tasks = n_tasks / 2
-               n_threads_per_task = max_threads / n_tasks
+               n_tasks = max(1, n_tasks / 2)
+               n_threads_per_task = max(1, max_threads / n_tasks)
                optimal_found = .true.
                if (self%threadsafe .and. set%verbose) write(env%unit, '(A,I0,A)') "Hessian Tuning: Optimal found at ", n_tasks, " tasks."
             endif
@@ -298,6 +319,11 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
       kat_start = kat_end + 1
    end do
+
+   if (.not. force_serial .and. initial_throughput > 0.0_wp) then
+      call xtb_record_thread_preference(max_threads, best_threads_per_task, initial_throughput, &
+         & best_throughput, set%verbose, env%unit)
+   end if
 
 end subroutine hessian
 

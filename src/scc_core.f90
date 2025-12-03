@@ -29,6 +29,8 @@ module xtb_scc_core
    use xtb_xtb_dispersion
    use xtb_xtb_multipole
    use xtb_broyden
+   use xtb_parallel_threads, only : xtb_apply_thread_preference, xtb_get_max_available_threads
+   use omp_lib
    implicit none
    private
 
@@ -394,6 +396,7 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
    integer,external :: lin
    integer  :: i,ii,j,jj,k,kk,l,m
    integer  :: ishell,jshell
+   integer  :: omp_cap
    real(wp) :: t8,t9
    real(wp) :: eh1,dum,tgb
    real(wp) :: eold
@@ -410,6 +413,10 @@ subroutine scc(env,xtbData,solver,n,nel,nopen,ndim,ndp,nqp,nmat,nshell, &
 
    allocate(S_factorized(ndim, ndim), source = 0.0_wp )
    S_factorized = S
+
+   omp_cap = xtb_get_max_available_threads()
+   call xtb_apply_thread_preference(omp_cap)
+
    call mctc_potrf(env, S_factorized)
 
    converged = .false.

@@ -113,6 +113,7 @@ srcs += files(
   'optimizer.f90',
   'pbc.f90',
   'pbc_tools.f90',
+  'parallel_threads.f90',
   'peeq_module.f90',
   'pocketscan.f90',
   'pqn.f90',

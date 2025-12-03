@@ -115,6 +115,7 @@ list(APPEND srcs
   "${dir}/optimizer.f90"
   "${dir}/pbc.f90"
   "${dir}/pbc_tools.f90"
+  "${dir}/parallel_threads.f90"
   "${dir}/peeq_module.f90"
   "${dir}/pocketscan.f90"
   "${dir}/pqn.f90"
