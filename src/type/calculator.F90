@@ -144,7 +144,6 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    logical :: do_parallel, has_openmp
 !$ integer :: omp_get_max_threads
 !$ external :: omp_set_max_active_levels, omp_set_num_threads
-!$ integer :: omp_get_thread_num, omp_get_num_threads
 #ifdef WITH_MKL
 !$ external :: mkl_set_num_threads
 #endif
