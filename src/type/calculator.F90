@@ -214,14 +214,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    end if
 
    !$omp parallel if(do_parallel) num_threads(outer_threads) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads, set) &
+   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads) &
    !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, t1, w1, ic) &
    !$omp firstprivate(inner_threads)
-
-      ! Debug print for thread counts (only from first thread)
-      !$ if (do_parallel .and. omp_get_thread_num() == 0) then
-      !$    print *, "DEBUG: Outer threads:", omp_get_num_threads(), " Inner req:", inner_threads, " Set threads:", set%omp_threads
-      !$ endif
 
       ! Enforce thread limit for nested regions and libraries (BLAS/MKL)
       !$ if (do_parallel) call omp_set_num_threads(inner_threads)
