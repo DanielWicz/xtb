@@ -339,6 +339,8 @@ module xtb_setparam
    real(wp) :: scale_hess = 1.0_wp
    ! Number of concurrent numerical Hessian displacements (0 = OpenMP default)
    integer  :: palnhess = 0
+   ! Requested OpenMP threads for inner SCC / singlepoints (0 = environment/default)
+   integer  :: omp_threads = 0
 
 !  switch on gbsa for solvent if second argument is a valid solvent name
    type(TSolvInput) :: solvInput

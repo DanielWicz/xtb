@@ -157,23 +157,25 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    has_openmp = .false.
 !$ has_openmp = .true.
 
-   outer_threads = max(1, set%palnhess)
-   if (.not. self%threadsafe) outer_threads = 1
-   outer_threads = min(outer_threads, ntasks)
-   inner_threads = 1
-   do_parallel = .false.
+   ! Determine inner SCC threads (from --parallel if given)
+   inner_threads = set%omp_threads
+!$ if (inner_threads <= 0) inner_threads = omp_get_max_threads()
+   if (inner_threads <= 0) inner_threads = 1
 
-!$ outer_threads = set%palnhess
-!$ if (outer_threads <= 0) then
-!$    outer_threads = omp_get_max_threads()
-!$ else
-!$    outer_threads = min(outer_threads, omp_get_max_threads())
+   ! Determine outer displacement threads (from --palnhess, else auto)
+   outer_threads = set%palnhess
+!$ if (outer_threads <= 0) outer_threads = max(1, omp_get_max_threads() / inner_threads)
+   if (outer_threads <= 0) outer_threads = 1
+
+   outer_threads = min(outer_threads, ntasks)
+   if (.not. self%threadsafe) outer_threads = 1
+
+   do_parallel = has_openmp .and. (outer_threads > 1)
+
+!$ if (do_parallel) then
+!$    call omp_set_max_active_levels(2)
+!$    call omp_set_dynamic(0)
 !$ end if
-!$ outer_threads = min(outer_threads, ntasks)
-!$ if (.not. self%threadsafe) outer_threads = 1
-!$ do_parallel = outer_threads > 1
-!$ inner_threads = max(1, omp_get_max_threads() / outer_threads)
-!$ if (do_parallel) call omp_set_max_active_levels(2)
 
    if (.not. has_openmp) then
       if (outer_threads > 1) then

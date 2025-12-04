@@ -1368,7 +1368,7 @@ contains
 
          case ('-P', '--parallel')
 !$          if (.false.) then
-               call env%warning('Program compiled without threading support', source)
+            call env%warning('Program compiled without threading support', source)
 !$          end if
             ! Always remove next argument to keep argument parsing consistent
             call args%nextArg(sec)
@@ -1381,6 +1381,11 @@ contains
 #endif
 !$             end if
 !$          end if
+            if (allocated(sec)) then
+               if (getValue(env, sec, idum)) then
+                  set%omp_threads = idum
+               end if
+            end if
 
          case ('--restart')
             restart = .true.
