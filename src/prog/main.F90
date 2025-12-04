@@ -78,6 +78,12 @@ module xtb_prog_main
    use xtb_main_setup
    use xtb_main_defaults, only: initDefaults
    use xtb_main_json, only: main_xtb_json, write_json_gfnff_lists
+#ifdef _OPENMP
+   use omp_lib, only: omp_set_num_threads
+#ifdef WITH_MKL
+   use mkl_service, only: mkl_set_num_threads
+#endif
+#endif
    use xtb_geoopt
    use xtb_metadynamic
    use xtb_biaspath
@@ -210,8 +216,6 @@ contains
       logical :: cold_fusion
 
 !  OMP stuff
-      integer :: TID, OMP_GET_NUM_THREADS, OMP_GET_THREAD_NUM
-      integer :: nproc
 
       type(TPrintTopo) :: printTopo ! gfnff topology printout list
 
@@ -1310,7 +1314,6 @@ contains
       !> Input for TBLite calculator
       type(TTBLiteInput), intent(out) :: tblite
 
-!$    integer :: omp_get_num_threads, nproc
       integer :: nFlags
       integer :: idum, ndum
       logical :: ldum
@@ -1367,25 +1370,35 @@ contains
             call set_define
 
          case ('-P', '--parallel')
-!$          if (.false.) then
-            call env%warning('Program compiled without threading support', source)
-!$          end if
-            ! Always remove next argument to keep argument parsing consistent
+#ifdef _OPENMP
             call args%nextArg(sec)
-!$          if (allocated(sec)) then
-!$             if (getValue(env, sec, idum)) then
-!$                nproc = omp_get_num_threads()
-!$                call omp_set_num_threads(idum)
-#ifdef WITH_MKL
-!$                call mkl_set_num_threads(idum)
-#endif
-!$             end if
-!$          end if
             if (allocated(sec)) then
                if (getValue(env, sec, idum)) then
-                  set%omp_threads = idum
+                  if (idum <= 0) then
+                     call env%warning('Ignoring non-positive --parallel value, using runtime default', source)
+                     set%omp_threads = 0
+                  else
+                     call omp_set_num_threads(idum)
+#ifdef WITH_MKL
+                     call mkl_set_num_threads(idum)
+#endif
+                     set%omp_threads = idum
+                  end if
                end if
+            else
+               call env%error("Integer argument for --parallel is missing", source)
             end if
+#else
+            call args%nextArg(sec)
+            if (allocated(sec)) then
+               if (getValue(env, sec, idum)) then
+                  set%omp_threads = max(0, idum)
+               end if
+               call env%warning('Program compiled without threading support, ignoring --parallel', source)
+            else
+               call env%error("Integer argument for --parallel is missing", source)
+            end if
+#endif
 
          case ('--restart')
             restart = .true.

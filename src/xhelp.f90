@@ -256,7 +256,7 @@ subroutine help(iunit)
    "    perform a numerical hessian calculation on input geometry",&
    "",&
    "--palnhess INT",&
-   "    number of parallel numerical displacements for Hessian (0=auto, 1=serial)",&
+   "    number of concurrent numerical Hessian displacements; combines with --parallel for per-SCC threads (0=auto, 1=serial)",&
    "",&
    "--ohess [LEVEL]",&
    "    perform a numerical hessian calculation on an ancopt(3) optimized geometry",&

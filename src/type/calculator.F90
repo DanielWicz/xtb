@@ -24,6 +24,13 @@ module xtb_type_calculator
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
    use xtb_setparam, only : set
+#ifdef _OPENMP
+   use omp_lib, only : omp_get_max_threads, omp_get_max_active_levels, omp_set_dynamic, &
+      & omp_set_max_active_levels, omp_set_num_threads, omp_get_thread_limit, omp_set_nested
+#ifdef WITH_MKL
+   use mkl_service, only : mkl_set_num_threads
+#endif
+#endif
    implicit none
 
    public :: TCalculator
@@ -137,15 +144,19 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
    integer :: iat, jat, kat, ic, jc, ii, jj
    integer :: outer_threads, inner_threads, ntasks, max_threads
+#ifdef _OPENMP
+   integer :: thread_limit
+   character(len=128) :: thread_msg
+#endif
    real(wp) :: er, el, dr(3), dl(3), sr(3, 3), sl(3, 3), egap, step2
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
-   logical :: do_parallel, has_openmp
-!$ integer :: omp_get_max_threads
-!$ external :: omp_set_max_active_levels, omp_set_num_threads
-#ifdef WITH_MKL
-!$ external :: mkl_set_num_threads
+   logical :: do_parallel
+#ifdef _OPENMP
+   logical, parameter :: has_openmp = .true.
+#else
+   logical, parameter :: has_openmp = .false.
 #endif
 
    call timing(t0, w0)
@@ -157,12 +168,12 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
    step2 = 0.5_wp / step
    ntasks = max(1, 3 * size(list))
-   has_openmp = .false.
-!$ has_openmp = .true.
-
-   ! Get available threads
+#ifdef _OPENMP
+   max_threads = omp_get_max_threads()
+   thread_limit = omp_get_thread_limit()
+#else
    max_threads = 1
-!$ max_threads = omp_get_max_threads()
+#endif
    
    ! Logic for thread distribution:
    ! 1. If user requested --palnhess (outer), we prioritize that count.
@@ -191,26 +202,48 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       end if
    end if
 
-   ! Cap outer threads by number of tasks
-   outer_threads = min(outer_threads, ntasks)
+   inner_threads = max(1, inner_threads)
+   outer_threads = max(1, min(outer_threads, ntasks))
 
    ! If calculator not threadsafe, force serial execution of displacements
-   if (.not. self%threadsafe) outer_threads = 1
-   
-   do_parallel = has_openmp .and. (outer_threads > 1)
-
-!$ if (do_parallel) then
-!$    call omp_set_max_active_levels(2)
-!$    call omp_set_dynamic(0)
-!$ end if
-
-   if (.not. has_openmp) then
+   if (.not. self%threadsafe) then
       if (outer_threads > 1) then
-         call env%warning("Binary compiled without OpenMP support, running numerical Hessian serially", source)
+         call env%warning("Calculator not thread-safe; running numerical Hessian serially", source)
       end if
       outer_threads = 1
-      do_parallel = .false.
    end if
+   
+   if (.not. has_openmp .and. outer_threads > 1) then
+      call env%warning("Binary compiled without OpenMP support, running numerical Hessian serially", source)
+   end if
+
+   if (.not. has_openmp) outer_threads = 1
+
+   do_parallel = has_openmp .and. (outer_threads > 1)
+
+#ifdef _OPENMP
+   if (do_parallel .and. thread_limit > 0) then
+      if (outer_threads * inner_threads > thread_limit) then
+         write(thread_msg,'(a,i0,a,i0,a)') 'Requested palnhess*parallel (', outer_threads*inner_threads, &
+            ') exceeds OpenMP thread limit (', thread_limit, '); runtime may cap threads'
+         call env%warning(trim(thread_msg), source)
+      end if
+   end if
+
+   ! Stabilise thread control and enable nested OpenMP so each displacement can spawn its own SCC team.
+   call omp_set_dynamic(.false.)
+   if (do_parallel) then
+      call omp_set_max_active_levels(max(2, omp_get_max_active_levels()))
+      call omp_set_nested(.true.)
+   else
+      if (set%omp_threads > 0) then
+         call omp_set_num_threads(inner_threads)
+#ifdef WITH_MKL
+         call mkl_set_num_threads(inner_threads)
+#endif
+      end if
+   end if
+#endif
 
    !$omp parallel if(do_parallel) num_threads(outer_threads) default(none) &
    !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads) &
