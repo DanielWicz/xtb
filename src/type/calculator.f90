@@ -163,6 +163,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    if (inner_threads <= 0) inner_threads = 1
 
    ! Determine outer displacement threads (from --palnhess, else auto)
+   ! If palnhess is not set (0), we try to fill the machine by spawning
+   ! as many displacement tasks as possible, dividing available threads
+   ! by the inner threads per task.
    outer_threads = set%palnhess
 !$ if (outer_threads <= 0) outer_threads = max(1, omp_get_max_threads() / inner_threads)
    if (outer_threads <= 0) outer_threads = 1
