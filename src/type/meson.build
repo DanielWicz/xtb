@@ -20,7 +20,7 @@ srcs += files(
   'atomlist.f90',
   'basisset.f90',
   'buffer.f90',
-  'calculator.f90',
+  'calculator.F90',
   'coulomb.f90',
   'data.f90',
   'dispersion_model.f90',
