@@ -1833,6 +1833,21 @@ contains
                call set_opt(env, 'optlevel', sec)
             end if
 
+         case ('--palnhess')
+            call args%nextArg(sec)
+            if (allocated(sec)) then
+               if (getValue(env, sec, idum)) then
+                  if (idum < 0) then
+                     call env%warning('Ignoring negative --palnhess value, using automatic thread selection', source)
+                     set%palnhess = 0
+                  else
+                     set%palnhess = idum
+                  end if
+               end if
+            else
+               call env%error('Integer argument for --palnhess is missing', source)
+            end if
+
          case ('--hess')
             call set_runtyp('hess')
 

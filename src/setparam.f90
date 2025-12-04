@@ -337,6 +337,8 @@ module xtb_setparam
    real(wp) :: step_hess = 0.005_wp
    ! Scaling factor for the hessian elements
    real(wp) :: scale_hess = 1.0_wp
+   ! Number of concurrent numerical Hessian displacements (0 = OpenMP default)
+   integer  :: palnhess = 0
 
 !  switch on gbsa for solvent if second argument is a valid solvent name
    type(TSolvInput) :: solvInput

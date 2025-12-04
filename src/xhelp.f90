@@ -255,6 +255,9 @@ subroutine help(iunit)
    "--hess",&
    "    perform a numerical hessian calculation on input geometry",&
    "",&
+   "--palnhess INT",&
+   "    number of parallel numerical displacements for Hessian (0=auto, 1=serial)",&
+   "",&
    "--ohess [LEVEL]",&
    "    perform a numerical hessian calculation on an ancopt(3) optimized geometry",&
    "",&
@@ -471,6 +474,9 @@ subroutine help_legacy
 
    write(id,'(3x,''    --hess        '','// &
    &          'x,''compute Hessian at GFNn-xTB level'')')
+
+   write(id,'(3x,''    --palnhess <int> '','// &
+   &          'x,''parallel numerical Hessian displacements (0=auto, 1=serial)'')')
 
    write(id,'(3x,''    --ohess       '','// &
    &          'x,''optimize and compute Hessian'')')

@@ -283,6 +283,7 @@ subroutine write_set_hess(ictrl)
    write(ictrl,'(3x,"sccacc=",g0)') set%accu_hess
    write(ictrl,'(3x,"step=",g0)') set%step_hess
    write(ictrl,'(3x,"scale=",g0)') set%scale_hess
+   write(ictrl,'(3x,"paln=",i0)') set%palnhess
 end subroutine write_set_hess
 
 subroutine write_set_gbsa(ictrl)
@@ -2112,6 +2113,7 @@ subroutine set_hess(env,key,val)
    logical,save :: set1 = .true.
    logical,save :: set2 = .true.
    logical,save :: set3 = .true.
+   logical,save :: set4 = .true.
    select case(key)
    case default ! do nothing
       call env%warning("the key '"//key//"' is not recognized by hess",source)
@@ -2124,6 +2126,16 @@ subroutine set_hess(env,key,val)
    case('scale')
       if (getValue(env,val,ddum).and.set3) set%scale_hess = ddum
       set3 = .false.
+   case('paln')
+      if (getValue(env,val,idum).and.set4) then
+         if (idum < 0) then
+            call env%warning('paln must be non-negative, falling back to automatic thread selection', source)
+            set%palnhess = 0
+         else
+            set%palnhess = idum
+         end if
+      end if
+      set4 = .false.
    end select
 end subroutine set_hess
 

@@ -23,6 +23,7 @@ module xtb_type_calculator
    use xtb_type_environment, only : TEnvironment
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
+   use xtb_setparam, only : set
    implicit none
 
    public :: TCalculator
@@ -135,66 +136,110 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp), intent(inout), optional :: polgrad(:, :)
 
    integer :: iat, jat, kat, ic, jc, ii, jj
+   integer :: outer_threads, inner_threads, ntasks
    real(wp) :: er, el, dr(3), dl(3), sr(3, 3), sl(3, 3), egap, step2
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
+   logical :: do_parallel, has_openmp
+!$ integer :: omp_get_max_threads
+!$ external :: omp_set_max_active_levels, omp_set_num_threads
 
    call timing(t0, w0)
+
+   if (step <= 0.0_wp) then
+      call env%error("Step for numerical Hessian must be positive", source)
+      return
+   end if
+
    step2 = 0.5_wp / step
+   ntasks = max(1, 3 * size(list))
+   has_openmp = .false.
+!$ has_openmp = .true.
 
-   !$omp parallel if(self%threadsafe) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0) &
-   !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
-   !$omp& t1, w1)
+   outer_threads = max(1, set%palnhess)
+   if (.not. self%threadsafe) outer_threads = 1
+   outer_threads = min(outer_threads, ntasks)
+   inner_threads = 1
+   do_parallel = .false.
 
-   allocate(gr(3, mol0%n), gl(3, mol0%n))
+!$ outer_threads = set%palnhess
+!$ if (outer_threads <= 0) then
+!$    outer_threads = omp_get_max_threads()
+!$ else
+!$    outer_threads = min(outer_threads, omp_get_max_threads())
+!$ end if
+!$ outer_threads = min(outer_threads, ntasks)
+!$ if (.not. self%threadsafe) outer_threads = 1
+!$ do_parallel = outer_threads > 1
+!$ inner_threads = max(1, omp_get_max_threads() / outer_threads)
+!$ if (do_parallel) call omp_set_max_active_levels(2)
 
-   !$omp do collapse(2) schedule(runtime)
-   do kat = 1, size(list)
-      do ic = 1, 3
+   if (.not. has_openmp) then
+      if (outer_threads > 1) then
+         call env%warning("Binary compiled without OpenMP support, running numerical Hessian serially", source)
+      end if
+      outer_threads = 1
+      do_parallel = .false.
+   end if
 
-         iat = list(kat)
-         ii = 3*(iat - 1) + ic
-         er = 0.0_wp
-         el = 0.0_wp
-         gr = 0.0_wp
-         gl = 0.0_wp
+   !$omp parallel if(do_parallel) num_threads(outer_threads) default(none) &
+   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads) &
+   !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, t1, w1, ic) &
+   !$omp firstprivate(inner_threads)
 
-         call hessian_point(self, env, mol0, chk0, iat, ic, +step, er, gr, sr, egap, dr, alphar)
-         call hessian_point(self, env, mol0, chk0, iat, ic, -step, el, gl, sl, egap, dl, alphal)
+      !$ if (do_parallel) call omp_set_num_threads(inner_threads)
+      allocate(gr(3, mol0%n), gl(3, mol0%n))
 
-         if (present(polgrad)) then
-            polgrad(1, ii) = (alphar(1, 1) - alphal(1, 1)) * step2
-            polgrad(2, ii) = (alphar(1, 2) - alphal(1, 2)) * step2
-            polgrad(3, ii) = (alphar(2, 2) - alphal(2, 2)) * step2
-            polgrad(4, ii) = (alphar(1, 3) - alphal(1, 3)) * step2
-            polgrad(5, ii) = (alphar(2, 3) - alphal(2, 3)) * step2
-            polgrad(6, ii) = (alphar(3, 3) - alphal(3, 3)) * step2
-         endif
+      !$omp do collapse(2) schedule(runtime)
+      do kat = 1, size(list)
+         do ic = 1, 3
 
-         dipgrad(:, ii) = (dr - dl) * step2
+            iat = list(kat)
+            ii = 3*(iat - 1) + ic
+            er = 0.0_wp
+            el = 0.0_wp
+            gr = 0.0_wp
+            gl = 0.0_wp
 
-         do jat = 1, mol0%n
-            do jc = 1, 3
-               jj = 3*(jat - 1) + jc
-               hess(jj, ii) = hess(jj, ii) &
-                  & + (gr(jc, jat) - gl(jc, jat)) * step2
+            call hessian_point(self, env, mol0, chk0, iat, ic, +step, er, gr, sr, egap, dr, alphar)
+            call hessian_point(self, env, mol0, chk0, iat, ic, -step, el, gl, sl, egap, dl, alphal)
+
+            if (present(polgrad)) then
+               polgrad(1, ii) = (alphar(1, 1) - alphal(1, 1)) * step2
+               polgrad(2, ii) = (alphar(1, 2) - alphal(1, 2)) * step2
+               polgrad(3, ii) = (alphar(2, 2) - alphal(2, 2)) * step2
+               polgrad(4, ii) = (alphar(1, 3) - alphal(1, 3)) * step2
+               polgrad(5, ii) = (alphar(2, 3) - alphal(2, 3)) * step2
+               polgrad(6, ii) = (alphar(3, 3) - alphal(3, 3)) * step2
+            endif
+
+            dipgrad(:, ii) = (dr - dl) * step2
+
+            do jat = 1, mol0%n
+               do jc = 1, 3
+                  jj = 3*(jat - 1) + jc
+                  hess(jj, ii) = hess(jj, ii) &
+                     & + (gr(jc, jat) - gl(jc, jat)) * step2
+               end do
             end do
+
+            if (kat == 3 .and. ic == 3) then
+               !$omp critical(xtb_numdiff2)
+               call timing(t1, w1)
+               write(*,'("estimated CPU  time",F10.2," min")') &
+                  & 0.3333333_wp*size(list)*(t1-t0)/60.0_wp
+               write(*,'("estimated wall time",F10.2," min")') &
+                  & 0.3333333_wp*size(list)*(w1-w0)/60.0_wp
+               !$omp end critical(xtb_numdiff2)
+            endif
+
          end do
-
-         if (kat == 3 .and. ic == 3) then
-            !$omp critical(xtb_numdiff2)
-            call timing(t1, w1)
-            write(*,'("estimated CPU  time",F10.2," min")') &
-               & 0.3333333_wp*size(list)*(t1-t0)/60.0_wp
-            write(*,'("estimated wall time",F10.2," min")') &
-               & 0.3333333_wp*size(list)*(w1-w0)/60.0_wp
-            !$omp end critical(xtb_numdiff2)
-         endif
-
       end do
-   end do
+      !$omp end do
+
+      deallocate(gr, gl)
+
    !$omp end parallel
 end subroutine hessian
 
