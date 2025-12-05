@@ -248,20 +248,24 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    if (.not. do_parallel) then
       call omp_set_num_threads(inner_threads)
 #ifdef WITH_MKL
+      call mkl_set_dynamic(.false.)
       call mkl_set_num_threads(inner_threads)
 #endif
    end if
 #endif
 
-   !$omp parallel if(do_parallel) num_threads(outer_threads) default(none) &
+!$omp parallel if(do_parallel) num_threads(outer_threads) default(none) &
    !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads) &
    !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, t1, w1, ic) &
    !$omp firstprivate(inner_threads)
 
       ! Enforce thread limit for nested regions and libraries (BLAS/MKL)
-      !$ if (do_parallel) call omp_set_num_threads(inner_threads)
+   !$ if (do_parallel) call omp_set_num_threads(inner_threads)
 #ifdef WITH_MKL
-      !$ if (do_parallel) call mkl_set_num_threads(inner_threads)
+   !$ if (do_parallel) then
+   !$    call mkl_set_dynamic(.false.)
+   !$    call mkl_set_num_threads(inner_threads)
+   !$ end if
 #endif
       
       allocate(gr(3, mol0%n), gl(3, mol0%n))

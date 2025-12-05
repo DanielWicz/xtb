@@ -1380,6 +1380,7 @@ contains
                   else
                      call omp_set_num_threads(idum)
 #ifdef WITH_MKL
+                     call mkl_set_dynamic(.false.)
                      call mkl_set_num_threads(idum)
 #endif
                      set%omp_threads = idum
