@@ -32,6 +32,7 @@ add_subdirectory("prog")
 add_subdirectory("ptb")
 add_subdirectory("solv")
 add_subdirectory("tblite")
+add_subdirectory("mpi")
 add_subdirectory("type")
 add_subdirectory("xtb")
 add_subdirectory("lbfgs_anc")
@@ -39,7 +40,6 @@ add_subdirectory("lbfgs_anc")
 set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
 
 list(APPEND srcs
-  "${dir}/mpi/numhess_mpi.F90"
   "${dir}/aespot.F90"
   "${dir}/anharmlib.f90"
   "${dir}/aoparam.f90"
