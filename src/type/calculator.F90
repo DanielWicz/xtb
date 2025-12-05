@@ -209,8 +209,8 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
    mpi_handled = .false.
    if (mpi_hessian_available()) then
-   call mpi_hessian_execute(mpi_task, mol0, chk0, list, step, hess, dipgrad, polgrad, mpi_handled)
-   if (mpi_handled) return
+      call mpi_hessian_execute(env, mol0, chk0, list, step, hess, dipgrad, polgrad, mpi_handled)
+      if (mpi_handled) return
    end if
    
    ! Logic for thread distribution:
@@ -364,22 +364,6 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    !$omp end parallel
 
    if (env_overridden) call restore_nested_env(omp_state)
-
-contains
-
-   subroutine mpi_task(iat, ic, disp, energy, gradient, sigma, egap, dipole, alpha)
-      integer, intent(in) :: iat, ic
-      real(wp), intent(in) :: disp
-      real(wp), intent(out) :: energy
-      real(wp), intent(out) :: gradient(:, :)
-      real(wp), intent(out) :: sigma(3, 3)
-      real(wp), intent(out) :: egap
-      real(wp), intent(out) :: dipole(3)
-      real(wp), intent(out) :: alpha(3, 3)
-
-      call hessian_point(self, env, mol0, chk0, iat, ic, disp, energy, gradient, sigma, egap, dipole, alpha)
-   end subroutine mpi_task
-
 end subroutine hessian
 
 subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient, sigma, egap, dipole, alpha)

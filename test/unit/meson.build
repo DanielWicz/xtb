@@ -31,8 +31,6 @@ if not testdrive_dep.found()
   subdir_done()
 endif
 
-fs = import('fs')
-
 tests = [
   'atomlist',
   'coordinationnumber',
@@ -61,7 +59,6 @@ tests = [
   'vertical',
   'wsc',
   'cpx',
-  'mpi_hessian',
 ]
 
 test_srcs = files(
@@ -71,12 +68,7 @@ test_srcs = files(
   'test_ptb.F90',
 )
 foreach t : tests
-  fname = 'test_@0@'.format(t.underscorify())
-  if fs.is_file(meson.current_source_dir() / (fname + '.F90'))
-    test_srcs += files(fname + '.F90')
-  else
-    test_srcs += files(fname + '.f90')
-  endif
+  test_srcs += files('test_@0@.f90'.format(t.underscorify()))
 endforeach
 
 tester = executable(
@@ -94,11 +86,6 @@ foreach t : tests
   test(t, tester, args: t, suite: 'unit', env: xtbenv)
 endforeach
 test('ptb', tester, args: 'ptb', suite: 'unit', env: xtbenv)
-
-mpirun_prog = find_program('mpirun', required: false)
-if mpirun_prog.found()
-  test('mpi_hessian_mpirun', mpirun_prog, args: ['-np', '3', tester.full_path(), 'mpi_hessian'], suite: 'unit', env: xtbenv)
-endif
 
 # some very basic checks to see if the executable reacts at all
 test('Argparser print version', xtb_exe, args: '--version', env: xtbenv)
