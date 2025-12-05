@@ -44,13 +44,12 @@ contains
 !> Query whether MPI Hessian path is usable (MPI library available and size>1)
 logical function mpi_hessian_available()
 #ifdef WITH_MPI
-   logical :: flag
-   integer :: ierr, size
+   integer :: flag, ierr, size
 
    mpi_hessian_available = .false.
    call MPI_Initialized(flag, ierr)
    if (ierr /= MPI_SUCCESS) return
-   if (.not. flag) then
+   if (flag == 0) then
       call MPI_Init(ierr)
       if (ierr /= MPI_SUCCESS) return
    end if
@@ -75,8 +74,7 @@ subroutine mpi_hessian_execute(task, mol0, chk0, list, step, hess, dipgrad, polg
    logical, intent(out) :: handled
 
 #ifdef WITH_MPI
-   integer :: ierr, rank, comm_size
-   logical :: flag
+   integer :: ierr, rank, size, flag
    integer :: ntasks, task_id, kat, ic, iat, ii, jat, jc, jj
    real(wp), allocatable :: hloc(:, :), dloc(:, :), ploc(:, :)
    real(wp), allocatable :: gr(:, :), gl(:, :)
@@ -87,13 +85,13 @@ subroutine mpi_hessian_execute(task, mol0, chk0, list, step, hess, dipgrad, polg
 
    handled = .false.
    call MPI_Initialized(flag, ierr)
-   if (.not. flag) call MPI_Init(ierr)
+   if (flag == 0) call MPI_Init(ierr)
    if (ierr /= MPI_SUCCESS) return
 
    call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
-   call MPI_Comm_size(MPI_COMM_WORLD, comm_size, ierr)
+   call MPI_Comm_size(MPI_COMM_WORLD, size, ierr)
    if (ierr /= MPI_SUCCESS) return
-   if (comm_size < 2) return
+   if (size < 2) return
 
    ntasks = max(1, 3 * size(list))
    step2 = 0.5_wp / step
@@ -111,7 +109,7 @@ subroutine mpi_hessian_execute(task, mol0, chk0, list, step, hess, dipgrad, polg
    allocate(gr(3, mol0%n), gl(3, mol0%n))
 
    do task_id = 1, ntasks
-      if (mod(task_id-1, comm_size) /= rank) cycle
+      if (mod(task_id-1, size) /= rank) cycle
       kat = (task_id - 1) / 3 + 1
       ic  = mod(task_id - 1, 3) + 1
       iat = list(kat)
@@ -152,8 +150,8 @@ subroutine mpi_hessian_execute(task, mol0, chk0, list, step, hess, dipgrad, polg
    deallocate(hloc, dloc, gr, gl)
 
    mpi_last_used  = .true.
-   mpi_last_world = comm_size
-   mpi_last_local = ntasks/comm_size + merge(1,0, mod(ntasks,comm_size) > rank)
+   mpi_last_world = size
+   mpi_last_local = ntasks/size + merge(1,0, mod(ntasks,size) > rank)
    handled = .true.
 
    call MPI_Barrier(MPI_COMM_WORLD, ierr)

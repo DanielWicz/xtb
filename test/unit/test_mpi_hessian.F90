@@ -74,19 +74,12 @@ subroutine test_mpi_hessian_parallel(error)
    type(TRestart) :: chk
    real(wp), allocatable :: hess(:, :), dipgrad(:, :)
    integer, allocatable :: list(:)
-   integer :: i
    integer :: rank, size, ierr
    real(wp) :: step
-   logical :: initd
-
-   call MPI_Initialized(initd, ierr)
-   if (.not. initd) call MPI_Init(ierr)
-   if (ierr /= MPI_SUCCESS) return
 
    call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
    call MPI_Comm_size(MPI_COMM_WORLD, size, ierr)
    if (size < 2) then
-      call MPI_Finalize(ierr)
       return
    end if
 
@@ -108,8 +101,6 @@ subroutine test_mpi_hessian_parallel(error)
       call check(error, mpi_hessian_was_used())
       call check(error, mpi_hessian_last_world_size() == size)
    end if
-
-   call MPI_Finalize(ierr)
 end subroutine test_mpi_hessian_parallel
 #else
 subroutine dummy_sp(self, env, mol, chk, printlevel, restart, energy, gradient, sigma, hlgap, results)
