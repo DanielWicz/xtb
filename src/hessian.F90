@@ -85,7 +85,7 @@ subroutine numhess( &
    real(wp) :: dumj,acc,w0,w1,step2,aa,bb,cc,scalh,hof,h298
    real(wp) :: sum1,sum2,trdip(3),dipole(3)
    real(wp) :: trpol(3),sl(3,3)
-   integer  :: n3,i,j,k,ic,jc,ia,ja,ii,jj,info,lwork,a,b,ri,rj
+   integer  :: n3,i,j,k,ic,jc,ia,ja,ii,jj,info,lwork,liwork,a,b,ri,rj
    integer  :: nread,kend,lowmode
    integer  :: nonfrozh
    integer  :: fixmode
@@ -105,6 +105,7 @@ subroutine numhess( &
    real(wp),allocatable :: v(:)
    real(wp),allocatable :: freq_scal(:)
    real(wp),allocatable :: aux (:)
+   integer, allocatable :: iwork(:)
    real(wp),allocatable :: isqm(:)
    real(wp),allocatable :: gl  (:,:)
    real(wp),allocatable :: xyzsave(:,:)
@@ -391,8 +392,10 @@ subroutine numhess( &
    if (set%runtyp.eq.p_run_bhess) htb=res%hess-hbias
    ! diag
    lwork  = 1 + 6*n3 + 2*n3**2
+   liwork = 3 + 5*n3
    allocate(aux(lwork))
-   call dsyev ('V','U',n3,res%hess,n3,res%freq,aux,lwork,info)
+   allocate(iwork(liwork))
+   call dsyevd('V','U',n3,res%hess,n3,res%freq,aux,lwork,iwork,liwork,info)
    if(info.ne.0) then
       call env%error('Diagonalization of hessian failed', source)
       return
