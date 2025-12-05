@@ -47,6 +47,7 @@ program tester
    use test_vertical, only : collect_fukui
    use test_wsc, only : collect_wsc
    use test_cpx, only : collect_cpx
+   use test_mpi_hessian, only : collect_mpi_hessian
    implicit none
    integer :: stat, is
    character(len=:), allocatable :: suite_name, test_name
@@ -85,7 +86,8 @@ program tester
       new_testsuite("thermo", collect_thermo), &
       new_testsuite("vertical", collect_fukui), &
       new_testsuite("wsc", collect_wsc), &
-      new_testsuite("cpx", collect_cpx) &
+      new_testsuite("cpx", collect_cpx), &
+      new_testsuite("mpi_hessian", collect_mpi_hessian) &
       ]
 
    call get_argument(1, suite_name)
