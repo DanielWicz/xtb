@@ -71,14 +71,6 @@ option(
   yield: true,
   description: 'use OpenMP parallelisation',
 )
-
-option(
-  'mpi',
-  type: 'feature',
-  value: 'auto',
-  yield: true,
-  description: 'enable MPI scaffolding for numerical Hessian parallelism',
-)
 option(
   'install_modules',
   type: 'boolean',

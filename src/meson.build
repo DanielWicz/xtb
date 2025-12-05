@@ -33,7 +33,6 @@ subdir('ptb')
 subdir('solv')
 subdir('tblite')
 subdir('type')
-subdir('mpi')
 subdir('xtb')
 subdir('lbfgs_anc')
 
