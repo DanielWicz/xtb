@@ -39,7 +39,6 @@ add_subdirectory("lbfgs_anc")
 set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
 
 list(APPEND srcs
-  "${dir}/mpi/numhess_mpi.F90"
   "${dir}/aespot.F90"
   "${dir}/anharmlib.f90"
   "${dir}/aoparam.f90"
