@@ -24,9 +24,11 @@ module xtb_type_calculator
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
    use xtb_setparam, only : set
+   use iso_c_binding, only : c_char, c_int, c_null_char
 #ifdef _OPENMP
    use omp_lib, only : omp_get_max_threads, omp_get_max_active_levels, omp_set_dynamic, &
-      & omp_set_max_active_levels, omp_set_num_threads, omp_get_thread_limit, omp_set_nested
+      & omp_set_max_active_levels, omp_set_num_threads, omp_get_thread_limit, omp_set_nested, &
+      & omp_get_thread_num, omp_get_num_threads
 #ifdef WITH_MKL
    use mkl_service, only : mkl_set_num_threads
 #endif
@@ -35,6 +37,30 @@ module xtb_type_calculator
 
    public :: TCalculator
    private
+
+   interface
+      integer(c_int) function c_setenv(name, value, overwrite) bind(C, name="setenv")
+         import :: c_char, c_int
+         character(c_char), dimension(*), intent(in) :: name
+         character(c_char), dimension(*), intent(in) :: value
+         integer(c_int), value :: overwrite
+      end function c_setenv
+
+      integer(c_int) function c_unsetenv(name) bind(C, name="unsetenv")
+         import :: c_char, c_int
+         character(c_char), dimension(*), intent(in) :: name
+      end function c_unsetenv
+   end interface
+
+   !> Preserve temporary threading environment settings during Hessian evaluation
+   type :: thread_env_state
+      character(len=:), allocatable :: openblas_num_threads
+      character(len=:), allocatable :: goto_num_threads
+      character(len=:), allocatable :: blis_num_threads
+      character(len=:), allocatable :: omp_dynamic
+      character(len=:), allocatable :: omp_wait_policy
+      character(len=:), allocatable :: omp_max_active_levels
+   end type thread_env_state
 
 
    !> Base calculator
@@ -143,7 +169,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp), intent(inout), optional :: polgrad(:, :)
 
    integer :: iat, jat, kat, ic, jc, ii, jj
-   integer :: outer_threads, inner_threads, ntasks, max_threads
+   integer :: outer_threads, inner_threads, ntasks, max_threads, tmp_inner
 #ifdef _OPENMP
    integer :: thread_limit, active_levels, desired_levels
    character(len=128) :: thread_msg
@@ -154,6 +180,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
    logical :: do_parallel
+   integer :: observed_inner
+   type(thread_env_state) :: env_state
+   logical :: env_overridden
 #ifdef _OPENMP
    logical, parameter :: has_openmp = .true.
 #else
@@ -175,6 +204,8 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 #else
    max_threads = 1
 #endif
+   observed_inner = 0
+   env_overridden = .false.
    
    ! Logic for thread distribution:
    ! 1. If user requested --palnhess (outer), we prioritize that count.
@@ -229,7 +260,16 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
          ') exceeds OpenMP thread limit (', thread_limit, '); capping inner threads to ', inner_threads
       call env%warning(trim(thread_msg), source)
    end if
+#endif
 
+   if (.not. env_overridden) then
+      call apply_thread_env(env_state, inner_threads)
+      env_overridden = .true.
+   end if
+
+   call set_blas_num_threads(inner_threads)
+
+#ifdef _OPENMP
    ! Stabilise thread control and enable nested OpenMP so each displacement can spawn its own SCC team.
    call omp_set_dynamic(.false.)
    if (do_parallel) then
@@ -255,7 +295,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 #endif
 
 !$omp parallel if(do_parallel) num_threads(outer_threads) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads) &
+   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, do_parallel, outer_threads, observed_inner, tmp_inner) &
    !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, t1, w1, ic) &
    !$omp firstprivate(inner_threads)
 
@@ -267,6 +307,19 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    !$    call mkl_set_num_threads(inner_threads)
    !$ end if
 #endif
+
+      if (do_parallel .and. inner_threads > 1) then
+         if (omp_get_thread_num() == 0) then
+            tmp_inner = 1
+            !$omp parallel reduction(max:tmp_inner)
+            tmp_inner = omp_get_num_threads()
+            !$omp end parallel
+            observed_inner = tmp_inner
+         end if
+         !$omp barrier
+      else
+         observed_inner = max(1, inner_threads)
+      end if
       
       allocate(gr(3, mol0%n), gl(3, mol0%n))
 
@@ -320,6 +373,15 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       deallocate(gr, gl)
 
    !$omp end parallel
+#ifdef _OPENMP
+   if (do_parallel .and. inner_threads > 1 .and. observed_inner < inner_threads) then
+      write(thread_msg,'(a,i0,a,i0,a)') 'Nested inner threads limited to ', observed_inner, &
+         ' (requested ', inner_threads, '); BLAS/OpenMP runtime restricted nesting'
+      call env%warning(trim(thread_msg), source)
+   end if
+#endif
+
+   if (env_overridden) call restore_thread_env(env_state)
 end subroutine hessian
 
 subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient, sigma, egap, dipole, alpha)
@@ -350,5 +412,117 @@ subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient,
    alpha(:, :) = res%alpha
 
 end subroutine hessian_point
+
+!> Convert a character string to a C NULL terminated array
+pure function to_c_string(str) result(cstr)
+   character(len=*), intent(in) :: str
+   character(kind=c_char), allocatable :: cstr(:)
+   integer :: n, i
+
+   n = len_trim(str)
+   allocate(cstr(n+1))
+   do i = 1, n
+      cstr(i) = str(i:i)
+   end do
+   cstr(n+1) = c_null_char
+end function to_c_string
+
+!> Set environment variable, overwriting any existing value
+subroutine set_env(name, value)
+   character(len=*), intent(in) :: name, value
+   character(kind=c_char), allocatable :: cname(:), cvalue(:)
+   integer(c_int) :: rc
+
+   cname = to_c_string(name)
+   cvalue = to_c_string(value)
+   rc = c_setenv(cname, cvalue, 1_c_int)
+end subroutine set_env
+
+!> Unset environment variable if present
+subroutine unset_env(name)
+   character(len=*), intent(in) :: name
+   character(kind=c_char), allocatable :: cname(:)
+   integer(c_int) :: rc
+
+   cname = to_c_string(name)
+   rc = c_unsetenv(cname)
+end subroutine unset_env
+
+!> Capture an environment variable if present
+subroutine capture_env(name, value)
+   character(len=*), intent(in) :: name
+   character(len=:), allocatable, intent(out) :: value
+   integer :: stat, lenv
+
+   call get_environment_variable(name, length=lenv, status=stat)
+   if (stat == 0 .and. lenv > 0) then
+      allocate(character(len=lenv) :: value)
+      call get_environment_variable(name, value, status=stat)
+      if (stat /= 0) then
+         deallocate(value)
+      end if
+   end if
+end subroutine capture_env
+
+!> Restore (or unset) a captured environment variable
+subroutine restore_env(name, value)
+   character(len=*), intent(in) :: name
+   character(len=:), allocatable, intent(in) :: value
+
+   if (allocated(value)) then
+      call set_env(name, value)
+   else
+      call unset_env(name)
+   end if
+end subroutine restore_env
+
+!> Set BLAS/OpenMP-related environment variables for inner teams and remember old values
+subroutine apply_thread_env(state, inner_threads)
+   type(thread_env_state), intent(out) :: state
+   integer, intent(in) :: inner_threads
+   character(len=32) :: buf
+
+   call capture_env('OPENBLAS_NUM_THREADS', state%openblas_num_threads)
+   call capture_env('GOTO_NUM_THREADS', state%goto_num_threads)
+   call capture_env('BLIS_NUM_THREADS', state%blis_num_threads)
+   call capture_env('OMP_DYNAMIC', state%omp_dynamic)
+   call capture_env('OMP_WAIT_POLICY', state%omp_wait_policy)
+   call capture_env('OMP_MAX_ACTIVE_LEVELS', state%omp_max_active_levels)
+
+   write(buf,'(I0)') max(1, inner_threads)
+   call set_env('OPENBLAS_NUM_THREADS', trim(buf))
+   call set_env('GOTO_NUM_THREADS', trim(buf))
+   call set_env('BLIS_NUM_THREADS', trim(buf))
+   call set_env('OMP_DYNAMIC', 'FALSE')
+   call set_env('OMP_WAIT_POLICY', 'PASSIVE')
+   call set_env('OMP_MAX_ACTIVE_LEVELS', '2')
+end subroutine apply_thread_env
+
+!> Restore environment variables overridden for threading
+subroutine restore_thread_env(state)
+   type(thread_env_state), intent(in) :: state
+
+   call restore_env('OPENBLAS_NUM_THREADS', state%openblas_num_threads)
+   call restore_env('GOTO_NUM_THREADS', state%goto_num_threads)
+   call restore_env('BLIS_NUM_THREADS', state%blis_num_threads)
+   call restore_env('OMP_DYNAMIC', state%omp_dynamic)
+   call restore_env('OMP_WAIT_POLICY', state%omp_wait_policy)
+   call restore_env('OMP_MAX_ACTIVE_LEVELS', state%omp_max_active_levels)
+end subroutine restore_thread_env
+
+!> Helper to steer BLAS thread count in a runtime-agnostic way
+subroutine set_blas_num_threads(nthreads)
+   integer, intent(in) :: nthreads
+   character(len=32) :: buf
+
+#ifdef WITH_MKL
+   call mkl_set_dynamic(.false.)
+   call mkl_set_num_threads(nthreads)
+#endif
+   write(buf,'(I0)') max(1, nthreads)
+   call set_env('OPENBLAS_NUM_THREADS', trim(buf))
+   call set_env('GOTO_NUM_THREADS', trim(buf))
+   call set_env('BLIS_NUM_THREADS', trim(buf))
+end subroutine set_blas_num_threads
 
 end module xtb_type_calculator
