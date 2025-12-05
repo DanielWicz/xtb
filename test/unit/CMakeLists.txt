@@ -47,6 +47,8 @@ set(
   "vertical"
   "wsc"
   "cpx"
+  "palnhess_threads"
+  "mpi_hessian"
 )
 
 set(
@@ -57,7 +59,11 @@ set(
 
 foreach(t IN LISTS tests)
   string(MAKE_C_IDENTIFIER ${t} t) 
-  list(APPEND test-srcs "test_${t}.f90")
+  if(EXISTS "${dir}/test_${t}.f90")
+    list(APPEND test-srcs "test_${t}.f90")
+  elseif(EXISTS "${dir}/test_${t}.F90")
+    list(APPEND test-srcs "test_${t}.F90")
+  endif()
 endforeach()
 # add PTB explicitly since it is not part of the tests list (different ending)
 list(APPEND test-srcs "test_ptb.F90")
