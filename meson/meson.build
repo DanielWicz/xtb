@@ -125,6 +125,16 @@ if get_option('openmp')
   lib_deps += omp_dep
 endif
 
+# Optional MPI support (currently used for numerical Hessian scaffold)
+mpi_opt = get_option('mpi')
+if not mpi_opt.disabled()
+  mpi_dep = dependency('mpi', required: mpi_opt.enabled(), language: 'fortran')
+  if mpi_dep.found()
+    lib_deps += mpi_dep
+    add_project_arguments('-DWITH_MPI', language: 'fortran')
+  endif
+endif
+
 lib_deps += dependency('threads')
 
 

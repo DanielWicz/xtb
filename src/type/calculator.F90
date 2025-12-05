@@ -24,6 +24,8 @@ module xtb_type_calculator
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
    use xtb_setparam, only : set
+   use xtb_mpi_hessian, only : mpi_hessian_available, mpi_hessian_execute
+   use iso_c_binding, only : c_char, c_int, c_null_char
 #ifdef _OPENMP
    use omp_lib, only : omp_get_max_threads, omp_get_max_active_levels, omp_set_dynamic, &
       & omp_set_max_active_levels, omp_set_num_threads, omp_get_thread_limit, omp_set_nested
@@ -35,6 +37,16 @@ module xtb_type_calculator
 
    public :: TCalculator
    private
+
+   !> Small helper to remember environment variables we override
+   type :: omp_env_state
+      character(len=:), allocatable :: omp_num_threads
+      character(len=:), allocatable :: omp_max_active_levels
+      character(len=:), allocatable :: omp_nested
+      character(len=:), allocatable :: omp_dynamic
+      character(len=:), allocatable :: openblas_num_threads
+      character(len=:), allocatable :: mkl_num_threads
+   end type omp_env_state
 
 
    !> Base calculator
@@ -57,6 +69,20 @@ module xtb_type_calculator
       procedure(writeInfo), deferred :: writeInfo
 
    end type TCalculator
+
+   interface
+      integer(c_int) function c_setenv(name, value, overwrite) bind(C, name="setenv")
+         import :: c_char, c_int
+         character(c_char), dimension(*), intent(in) :: name
+         character(c_char), dimension(*), intent(in) :: value
+         integer(c_int), value :: overwrite
+      end function c_setenv
+
+      integer(c_int) function c_unsetenv(name) bind(C, name="unsetenv")
+         import :: c_char, c_int
+         character(c_char), dimension(*), intent(in) :: name
+      end function c_unsetenv
+   end interface
 
 
    abstract interface
@@ -154,6 +180,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
    logical :: do_parallel
+   logical :: mpi_handled
+   logical :: env_overridden
+   type(omp_env_state) :: omp_state
 #ifdef _OPENMP
    logical, parameter :: has_openmp = .true.
 #else
@@ -175,6 +204,14 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 #else
    max_threads = 1
 #endif
+
+   env_overridden = .false.
+
+   mpi_handled = .false.
+   if (mpi_hessian_available()) then
+      call mpi_hessian_execute(env, mol0, chk0, list, step, hess, dipgrad, polgrad, mpi_handled)
+      if (mpi_handled) return
+   end if
    
    ! Logic for thread distribution:
    ! 1. If user requested --palnhess (outer), we prioritize that count.
@@ -243,6 +280,11 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
          outer_threads = 1
          do_parallel = .false.
       end if
+   end if
+
+   if (do_parallel) then
+      call apply_nested_env(omp_state, outer_threads, inner_threads)
+      env_overridden = .true.
    end if
 
    if (.not. do_parallel) then
@@ -320,6 +362,8 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       deallocate(gr, gl)
 
    !$omp end parallel
+
+   if (env_overridden) call restore_nested_env(omp_state)
 end subroutine hessian
 
 subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient, sigma, egap, dipole, alpha)
@@ -350,5 +394,106 @@ subroutine hessian_point(self, env, mol0, chk0, iat, ic, step, energy, gradient,
    alpha(:, :) = res%alpha
 
 end subroutine hessian_point
+
+!> Convert a character string to a C NULL terminated array
+pure function to_c_string(str) result(cstr)
+   character(len=*), intent(in) :: str
+   character(kind=c_char), allocatable :: cstr(:)
+   integer :: n, i
+
+   n = len_trim(str)
+   allocate(cstr(n+1))
+   do i = 1, n
+      cstr(i) = str(i:i)
+   end do
+   cstr(n+1) = c_null_char
+end function to_c_string
+
+!> Safely capture the current value of an environment variable (if present)
+subroutine capture_env(name, value)
+   character(len=*), intent(in) :: name
+   character(len=:), allocatable, intent(out) :: value
+   integer :: stat, lenv
+
+   call get_environment_variable(name, length=lenv, status=stat)
+   if (stat == 0 .and. lenv > 0) then
+      allocate(character(len=lenv) :: value)
+      call get_environment_variable(name, value, status=stat)
+      if (stat /= 0) then
+         deallocate(value)
+      end if
+   end if
+end subroutine capture_env
+
+!> Set environment variable, overwriting any existing value
+subroutine set_env(name, value)
+   character(len=*), intent(in) :: name, value
+   character(kind=c_char), allocatable :: cname(:), cvalue(:)
+   integer(c_int) :: rc
+
+   cname = to_c_string(name)
+   cvalue = to_c_string(value)
+   rc = c_setenv(cname, cvalue, 1_c_int)
+end subroutine set_env
+
+!> Unset environment variable if present
+subroutine unset_env(name)
+   character(len=*), intent(in) :: name
+   character(kind=c_char), allocatable :: cname(:)
+   integer(c_int) :: rc
+
+   cname = to_c_string(name)
+   rc = c_unsetenv(cname)
+end subroutine unset_env
+
+!> Apply nested OpenMP/BLAS environment for palnhess and remember previous state
+subroutine apply_nested_env(state, outer_threads, inner_threads)
+   type(omp_env_state), intent(out) :: state
+   integer, intent(in) :: outer_threads, inner_threads
+   character(len=32) :: outer_str, inner_str
+   character(len=64) :: nested_list
+
+   call capture_env('OMP_NUM_THREADS', state%omp_num_threads)
+   call capture_env('OMP_MAX_ACTIVE_LEVELS', state%omp_max_active_levels)
+   call capture_env('OMP_NESTED', state%omp_nested)
+   call capture_env('OMP_DYNAMIC', state%omp_dynamic)
+   call capture_env('OPENBLAS_NUM_THREADS', state%openblas_num_threads)
+   call capture_env('MKL_NUM_THREADS', state%mkl_num_threads)
+
+   write(outer_str, '(I0)') max(1, outer_threads)
+   write(inner_str, '(I0)') max(1, inner_threads)
+   nested_list = trim(outer_str)//','//trim(inner_str)
+
+   call set_env('OMP_NUM_THREADS', nested_list)
+   call set_env('OMP_MAX_ACTIVE_LEVELS', '2')
+   call set_env('OMP_NESTED', 'TRUE')
+   call set_env('OMP_DYNAMIC', 'FALSE')
+   call set_env('OPENBLAS_NUM_THREADS', trim(inner_str))
+   call set_env('MKL_NUM_THREADS', trim(inner_str))
+end subroutine apply_nested_env
+
+!> Restore environment variables saved by apply_nested_env
+subroutine restore_nested_env(state)
+   type(omp_env_state), intent(in) :: state
+
+   call restore_env_var('OMP_NUM_THREADS', state%omp_num_threads)
+   call restore_env_var('OMP_MAX_ACTIVE_LEVELS', state%omp_max_active_levels)
+   call restore_env_var('OMP_NESTED', state%omp_nested)
+   call restore_env_var('OMP_DYNAMIC', state%omp_dynamic)
+   call restore_env_var('OPENBLAS_NUM_THREADS', state%openblas_num_threads)
+   call restore_env_var('MKL_NUM_THREADS', state%mkl_num_threads)
+end subroutine restore_nested_env
+
+!> Helper to restore or unset a single environment variable
+subroutine restore_env_var(name, value)
+   character(len=*), intent(in) :: name
+   character(len=:), allocatable, intent(in) :: value
+
+   if (allocated(value)) then
+      call set_env(name, value)
+   else
+      call unset_env(name)
+   end if
+end subroutine restore_env_var
 
 end module xtb_type_calculator
