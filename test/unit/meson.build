@@ -44,6 +44,7 @@ tests = [
   'gfn2',
   'gfnff',
   'hessian',
+  'palnhess_threads',
   'iff',
   'latticepoint',
   'molecule',
