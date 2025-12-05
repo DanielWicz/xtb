@@ -145,8 +145,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    integer :: iat, jat, kat, ic, jc, ii, jj
    integer :: outer_threads, inner_threads, ntasks, max_threads
 #ifdef _OPENMP
-   integer :: thread_limit
+   integer :: thread_limit, active_levels, desired_levels
    character(len=128) :: thread_msg
+   logical :: nested_ok
 #endif
    real(wp) :: er, el, dr(3), dl(3), sr(3, 3), sl(3, 3), egap, step2
    real(wp) :: alphal(3, 3), alphar(3, 3)
@@ -222,26 +223,33 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    do_parallel = has_openmp .and. (outer_threads > 1)
 
 #ifdef _OPENMP
-   if (do_parallel .and. thread_limit > 0) then
-      if (outer_threads * inner_threads > thread_limit) then
-         write(thread_msg,'(a,i0,a,i0,a)') 'Requested palnhess*parallel (', outer_threads*inner_threads, &
-            ') exceeds OpenMP thread limit (', thread_limit, '); runtime may cap threads'
-         call env%warning(trim(thread_msg), source)
-      end if
+   if (do_parallel .and. thread_limit > 0 .and. outer_threads * inner_threads > thread_limit) then
+      inner_threads = max(1, thread_limit / outer_threads)
+      write(thread_msg,'(a,i0,a,i0,a,i0)') 'Requested palnhess*parallel (', outer_threads*inner_threads, &
+         ') exceeds OpenMP thread limit (', thread_limit, '); capping inner threads to ', inner_threads
+      call env%warning(trim(thread_msg), source)
    end if
 
    ! Stabilise thread control and enable nested OpenMP so each displacement can spawn its own SCC team.
    call omp_set_dynamic(.false.)
    if (do_parallel) then
-      call omp_set_max_active_levels(max(2, omp_get_max_active_levels()))
-      call omp_set_nested(.true.)
-   else
-      if (set%omp_threads > 0) then
-         call omp_set_num_threads(inner_threads)
-#ifdef WITH_MKL
-         call mkl_set_num_threads(inner_threads)
-#endif
+      desired_levels = 1 + merge(1, 0, inner_threads > 1)
+      call omp_set_max_active_levels(max(desired_levels, omp_get_max_active_levels()))
+      call omp_set_nested(desired_levels > 1)
+      active_levels = omp_get_max_active_levels()
+      nested_ok = active_levels >= desired_levels
+      if (.not. nested_ok .and. inner_threads > 1) then
+         call env%warning("OpenMP runtime disallows nested teams; running Hessian displacements serially with inner threading", source)
+         outer_threads = 1
+         do_parallel = .false.
       end if
+   end if
+
+   if (.not. do_parallel) then
+      call omp_set_num_threads(inner_threads)
+#ifdef WITH_MKL
+      call mkl_set_num_threads(inner_threads)
+#endif
    end if
 #endif
 
