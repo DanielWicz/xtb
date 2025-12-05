@@ -98,20 +98,6 @@ test('ptb', tester, args: 'ptb', suite: 'unit', env: xtbenv)
 
 mpirun_prog = find_program('mpirun', required: false)
 if mpirun_prog.found()
-  py3 = py.find_installation()
-  # mpirun/PMIx in this environment needs AF_INET sockets. Some CI sandboxes
-  # forbid them (socket() returns EPERM), which causes mpirun to abort before
-  # the test starts. Probe once and skip the mpirun test in that case.
-  net_probe = run_command(py3, ['-c', '''
-import socket, sys
-try:
-    socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sys.exit(0)
-except OSError:
-    sys.exit(1)
-'''], check: false)
-  mpi_can_launch = net_probe.returncode() == 0
-
   mpi_env = environment()
   mpi_env.prepend('LD_LIBRARY_PATH', meson.project_build_root())
   mpi_env.prepend('PYTHONPATH', meson.project_source_root() / 'python')
@@ -121,11 +107,9 @@ except OSError:
   mpi_env.set('OMPI_MCA_btl', 'self,tcp')
   mpi_env.set('OMPI_MCA_oob', 'tcp')
   mpi_env.set('OMPI_MCA_rmaps_base_oversubscribe', 'yes')
-  if mpi_can_launch
-    test('mpi_hessian_mpirun', mpirun_prog, args: ['-np', '3', tester.full_path(), 'mpi_hessian'], suite: 'unit', env: mpi_env)
-  else
-    message('Skipping mpi_hessian_mpirun: AF_INET sockets not permitted in this environment')
-  endif
+  py3 = py.find_installation()
+  mpi_runner = files('run_mpi_hessian_mpirun.py')
+  test('mpi_hessian_mpirun', py3, args: [mpi_runner, mpirun_prog.full_path(), tester.full_path()], suite: 'unit', env: mpi_env)
 endif
 
 # some very basic checks to see if the executable reacts at all
