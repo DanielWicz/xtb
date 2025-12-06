@@ -207,7 +207,9 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 
    !$ call omp_set_num_threads(inner_threads)
 
-   allocate(gr(3, mol0%n), gl(3, mol0%n))
+   ! first-touch initialize thread-local scratch to bind pages to this thread's NUMA node
+   allocate(gr(3, mol0%n), source = 0.0_wp)
+   allocate(gl(3, mol0%n), source = 0.0_wp)
 
    !$omp do collapse(2) schedule(runtime)
    do kat = 1, size(list)
