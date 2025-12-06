@@ -24,7 +24,9 @@ module xtb_type_calculator
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
 !$   use omp_lib, only : omp_get_max_active_levels, omp_get_max_threads, &
-!$      & omp_get_num_procs, omp_set_max_active_levels, omp_set_num_threads
+!$      & omp_get_num_procs, omp_set_max_active_levels, omp_set_num_threads, &
+!$      & omp_get_thread_limit, omp_set_dynamic, omp_get_dynamic, &
+!$      & omp_set_nested, omp_get_num_threads, omp_get_thread_num
    implicit none
 
    public :: TCalculator
@@ -172,14 +174,22 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
    integer :: ndispl, outer_threads, inner_threads
-   integer :: max_threads, max_procs
+   integer :: max_threads, max_procs, thread_limit
    integer(kind=8) :: scratch_bytes, total_scratch_bytes
    integer :: env_outer, env_inner, sep, ios
    character(len=128) :: omp_env
+   logical :: trace_threads
+   integer :: observed_outer, observed_inner
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
    ndispl = 3 * size(list)
+
+   thread_limit = huge(thread_limit)
+!$ thread_limit = omp_get_thread_limit()
+   trace_threads = .false.
+   observed_outer = -1
+   observed_inner = -1
 
    env_outer = -1
    env_inner = -1
@@ -201,6 +211,10 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
       if (sep > 0 .and. sep < len_trim(omp_env)) &
          & read(omp_env(sep+1:), *, iostat=ios) env_inner
    end if
+   omp_env = ''
+   ios = 1
+   call get_environment_variable('XTB_HESS_TRACE', omp_env, status=ios)
+   if (ios == 0 .and. len_trim(omp_env) > 0) trace_threads = .true.
 
    outer_threads = 1
    inner_threads = 1
@@ -210,8 +224,13 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 !$ max_procs = max(1, omp_get_num_procs())
 !$ max_threads = max(1, omp_get_max_threads())
 !$ if (env_outer > 0) max_threads = min(max_threads, env_outer)
+!$ if (thread_limit > 0) max_threads = min(max_threads, thread_limit)
    call plan_hessian_threads(ndispl, env_outer, env_inner, max_procs, max_threads, &
       & outer_threads, inner_threads)
+!$ if (thread_limit > 0) outer_threads = min(outer_threads, &
+!$      & max(1, thread_limit / max(1, inner_threads)))
+!$ if (omp_get_dynamic()) call omp_set_dynamic(.false.)
+!$ call omp_set_nested(.true.)
 !$ if (omp_get_max_active_levels() < 2) call omp_set_max_active_levels(2)
 
    ! small diagnostic to help detect oversubscription / memory pressure
@@ -230,6 +249,23 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
            (env_inner > 0 .and. inner_threads /= env_inner) ) then
          write(env%unit,'(a,i0,a,i0,a,i0)') 'info: Hessian threads rescaled to outer=', &
             outer_threads, ', inner=', inner_threads, ', cores=', max_procs
+      end if
+   end if
+
+   if (trace_threads) then
+!$    !$omp parallel default(none) num_threads(outer_threads) &
+!$    !$omp shared(observed_outer, observed_inner, inner_threads)
+!$       if (omp_get_thread_num() == 0) observed_outer = omp_get_num_threads()
+!$       !$omp single
+!$          !$omp parallel default(none) num_threads(inner_threads) &
+!$          !$omp shared(observed_inner)
+!$             if (omp_get_thread_num() == 0) observed_inner = omp_get_num_threads()
+!$          !$omp end parallel
+!$       !$omp end single
+!$    !$omp end parallel
+      if (env%unit > 0 .and. observed_outer > 0 .and. observed_inner > 0) then
+         write(env%unit,'("info: Hessian observed team sizes outer=",i0,", inner=",i0)') &
+            observed_outer, observed_inner
       end if
    end if
 
