@@ -190,6 +190,15 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 !$ if (inner_threads < 1) inner_threads = 1
 !$ if (omp_get_max_active_levels() < 2) call omp_set_max_active_levels(2)
 
+   ! emit one-line note if user request was capped
+   if (env%unit > 0) then
+      if ( (env_outer > 0 .and. outer_threads /= env_outer) .or. &
+           (env_inner > 0 .and. inner_threads /= env_inner) ) then
+         write(env%unit,'(a,i0,a,i0,a,i0)') 'info: Hessian threads rescaled to outer=', &
+            outer_threads, ', inner=', inner_threads, ', cores=', max_procs
+      end if
+   end if
+
    !$omp parallel if(self%threadsafe) num_threads(outer_threads) default(none) &
    !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, &
    !$omp& outer_threads, inner_threads) &
