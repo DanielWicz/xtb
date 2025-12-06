@@ -173,6 +173,7 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp), allocatable :: gr(:, :), gl(:, :)
    integer :: ndispl, outer_threads, inner_threads
    integer :: max_threads, max_procs
+   integer(kind=8) :: scratch_bytes, total_scratch_bytes
    integer :: env_outer, env_inner, sep, ios
    character(len=128) :: omp_env
 
@@ -212,6 +213,16 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    call plan_hessian_threads(ndispl, env_outer, env_inner, max_procs, max_threads, &
       & outer_threads, inner_threads)
 !$ if (omp_get_max_active_levels() < 2) call omp_set_max_active_levels(2)
+
+   ! small diagnostic to help detect oversubscription / memory pressure
+   scratch_bytes = int(6_8 * int(mol0%n, kind=8) * (storage_size(1.0_wp)/8), kind=8)
+   total_scratch_bytes = scratch_bytes * int(outer_threads, kind=8)
+   if (env%unit > 0) then
+      write(env%unit,'("info: Hessian threads outer=",i0,", inner=",i0, ", displacements=",i0, &
+         & ", omp_procs=",i0, ", scratch_per_outer=",f8.3," MiB, total_scratch=",f9.3," MiB")') &
+         outer_threads, inner_threads, ndispl, max_procs, &
+         real(scratch_bytes)/(1024.0_wp**2), real(total_scratch_bytes)/(1024.0_wp**2)
+   end if
 
    ! emit one-line note if user request was capped
    if (env%unit > 0) then
