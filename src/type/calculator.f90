@@ -23,6 +23,8 @@ module xtb_type_calculator
    use xtb_type_environment, only : TEnvironment
    use xtb_type_molecule, only : TMolecule
    use xtb_type_restart, only : TRestart
+!$   use omp_lib, only : omp_get_max_active_levels, omp_get_max_threads, &
+!$      & omp_get_num_procs, omp_set_max_active_levels, omp_set_num_threads
    implicit none
 
    public :: TCalculator
@@ -139,14 +141,54 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    real(wp) :: alphal(3, 3), alphar(3, 3)
    real(wp) :: t0, t1, w0, w1
    real(wp), allocatable :: gr(:, :), gl(:, :)
+   integer :: ndispl, outer_threads, inner_threads
+   integer :: max_threads, max_procs
+   integer :: env_outer, env_inner, sep, ios
+   character(len=128) :: omp_env
 
    call timing(t0, w0)
    step2 = 0.5_wp / step
+   ndispl = 3 * size(list)
 
-   !$omp parallel if(self%threadsafe) default(none) &
-   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0) &
+   env_outer = -1
+   env_inner = -1
+   omp_env = ''
+   ios = 1
+   call get_environment_variable('OMP_NUM_THREADS', omp_env, status=ios)
+   if (ios == 0 .and. len_trim(omp_env) > 0) then
+      sep = index(omp_env, ',')
+      if (sep > 1) read(omp_env(1:sep-1), *, iostat=ios) env_outer
+      if (sep == 0) read(omp_env, *, iostat=ios) env_outer
+      if (sep > 0 .and. sep < len_trim(omp_env)) &
+         & read(omp_env(sep+1:), *, iostat=ios) env_inner
+   end if
+
+   outer_threads = 1
+   inner_threads = 1
+   max_procs = 1
+   max_threads = 1
+   ! choose nested team sizes without oversubscribing the machine
+!$ max_procs = max(1, omp_get_num_procs())
+!$ max_threads = max(1, omp_get_max_threads())
+!$ if (env_outer > 0) max_threads = min(max_threads, env_outer)
+!$ if (env_inner > 0) then
+!$    inner_threads = min(env_inner, max_procs)
+!$    outer_threads = min(ndispl, max_threads, max(1, max_procs / inner_threads))
+!$ else
+!$    outer_threads = min(ndispl, max_threads, max_procs)
+!$    inner_threads = max(1, max_procs / outer_threads)
+!$ end if
+!$ if (outer_threads < 1) outer_threads = 1
+!$ if (inner_threads < 1) inner_threads = 1
+!$ if (omp_get_max_active_levels() < 2) call omp_set_max_active_levels(2)
+
+   !$omp parallel if(self%threadsafe) num_threads(outer_threads) default(none) &
+   !$omp shared(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad, step2, t0, w0, &
+   !$omp& outer_threads, inner_threads) &
    !$omp private(kat, iat, jat, jc, jj, ii, er, el, egap, gr, gl, sr, sl, dr, dl, alphar, alphal, &
    !$omp& t1, w1)
+
+   !$ call omp_set_num_threads(inner_threads)
 
    allocate(gr(3, mol0%n), gl(3, mol0%n))
 
