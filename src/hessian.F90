@@ -131,6 +131,24 @@ subroutine numhess( &
       & pold(n3),nb(20,mol%n),indx(mol%n),molvec(mol%n),bond(mol%n,mol%n), &
       & freq_scal(n3),fc_tb(n3),fc_bias(n3),amass_au(n3), h_dummy(n3,n3), izero(n3))
 
+   ! First-touch initialize large Hessian work arrays for better NUMA locality
+!$omp parallel do collapse(2) default(none) shared(h, htb, hbias, n3) private(i, j)
+   do j = 1, n3
+      do i = 1, n3
+         h(i, j)     = 0.0_wp
+         htb(i, j)   = 0.0_wp
+         hbias(i, j) = 0.0_wp
+      end do
+   end do
+!$omp end parallel do
+!$omp parallel do collapse(2) default(none) shared(dipd, n3) private(i, j)
+   do j = 1, n3
+      do i = 1, 3
+         dipd(i, j) = 0.0_wp
+      end do
+   end do
+!$omp end parallel do
+
    if (set%elprop == p_elprop_alpha) then
       allocate(dalphadr(6,n3), source = 0.0_wp)
       allocate(dalphadq(6,n3), source = 0.0_wp)
