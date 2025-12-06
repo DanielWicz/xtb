@@ -154,6 +154,14 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
    env_inner = -1
    omp_env = ''
    ios = 1
+   ! user override: XTB_HESS_OUTER / XTB_HESS_INNER take precedence
+   call get_environment_variable('XTB_HESS_OUTER', omp_env, status=ios)
+   if (ios == 0 .and. len_trim(omp_env) > 0) read(omp_env, *, iostat=ios) env_outer
+   omp_env = ''
+   call get_environment_variable('XTB_HESS_INNER', omp_env, status=ios)
+   if (ios == 0 .and. len_trim(omp_env) > 0) read(omp_env, *, iostat=ios) env_inner
+   omp_env = ''
+   ios = 1
    call get_environment_variable('OMP_NUM_THREADS', omp_env, status=ios)
    if (ios == 0 .and. len_trim(omp_env) > 0) then
       sep = index(omp_env, ',')
