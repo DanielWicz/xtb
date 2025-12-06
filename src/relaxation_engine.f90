@@ -398,7 +398,7 @@ subroutine l_ancopt &
       &    optlevel,maxcycle_in,energy,egap,gradient,sigma,printlevel,fail)
 
    use xtb_mctc_convert
-   use xtb_mctc_lapack, only : lapack_syev
+   use xtb_mctc_lapack, only : lapack_syevd
 
    use xtb_type_molecule
    use xtb_type_restart
@@ -473,7 +473,7 @@ subroutine l_ancopt &
    !  ANC generation
    integer :: i,j,ij,k
    integer :: nat3
-   integer :: lwork
+   integer :: lwork, liwork
    integer :: info
    integer :: itry
    real(wp) :: thr
@@ -481,6 +481,7 @@ subroutine l_ancopt &
    real(wp) :: edum
    real(sp), allocatable :: hess(:,:)
    real(sp), allocatable :: aux(:)
+   integer,  allocatable :: iwork(:)
    real(sp), allocatable :: eig(:)
    real(wp), allocatable :: trafo(:,:)
    real(wp), allocatable :: hdiag(:)
@@ -647,22 +648,25 @@ subroutine l_ancopt &
             & calc%topo%nspinsyst,calc%topo%nsystem)
        else if (calc%topo%nsystem.eq.1) then
           lwork  = 1 + 6*nat3 + 2*nat3**2
-          allocate(aux(lwork))
-          call lapack_syev ('V','U',nat3,hess,nat3,eig,aux,lwork,info)
-          deallocate(aux)
+          liwork = 3 + 5*nat3
+          allocate(aux(lwork), iwork(liwork))
+          call lapack_syevd('V','U',nat3,hess,nat3,eig,aux,lwork,iwork,liwork,info)
+          deallocate(aux, iwork)
        end if
    else
       lwork  = 1 + 6*nat3 + 2*nat3**2
-      allocate(aux(lwork))
-      call lapack_syev ('V','U',nat3,hess,nat3,eig,aux,lwork,info)
-      deallocate(aux)
+      liwork = 3 + 5*nat3
+      allocate(aux(lwork), iwork(liwork))
+      call lapack_syevd('V','U',nat3,hess,nat3,eig,aux,lwork,iwork,liwork,info)
+      deallocate(aux, iwork)
    end if
-   class default
-      lwork  = 1 + 6*nat3 + 2*nat3**2
-      allocate(aux(lwork))
-      call lapack_syev ('V','U',nat3,hess,nat3,eig,aux,lwork,info)
-      deallocate(aux)
-   end select
+class default
+   lwork  = 1 + 6*nat3 + 2*nat3**2
+   liwork = 3 + 5*nat3
+   allocate(aux(lwork), iwork(liwork))
+   call lapack_syevd('V','U',nat3,hess,nat3,eig,aux,lwork,iwork,liwork,info)
+   deallocate(aux, iwork)
+end select
 
    if (.not. fragmented_hessian) then
       call detrotra4(linear,mol,hess,eig)
