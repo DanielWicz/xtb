@@ -28,6 +28,7 @@ module xtb_type_calculator
    implicit none
 
    public :: TCalculator
+   public :: plan_hessian_threads
    private
 
 
@@ -113,6 +114,35 @@ module xtb_type_calculator
 
 contains
 
+!> Compute outer/inner thread plan for Hessian without oversubscription
+pure subroutine plan_hessian_threads(ndispl, env_outer, env_inner, max_procs, max_threads, &
+      & outer_threads, inner_threads)
+   integer, intent(in) :: ndispl, env_outer, env_inner, max_procs, max_threads
+   integer, intent(out) :: outer_threads, inner_threads
+
+   outer_threads = 1
+   inner_threads = 1
+
+   if (max_procs < 1 .or. max_threads < 1) return
+
+   ! clamp requested threads to available pools
+   ! outer caps with max_threads to respect OMP max team size
+   if (env_outer > 0) then
+      outer_threads = min(ndispl, min(max_threads, max_procs))
+   end if
+
+   if (env_inner > 0) then
+      inner_threads = min(env_inner, max_procs)
+      outer_threads = min(ndispl, min(max_threads, max(1, max_procs / inner_threads)))
+   else
+      outer_threads = min(ndispl, min(max_threads, max_procs))
+      inner_threads = max(1, max_procs / outer_threads)
+   end if
+
+   if (outer_threads < 1) outer_threads = 1
+   if (inner_threads < 1) inner_threads = 1
+end subroutine plan_hessian_threads
+
 
 !> Evaluate hessian by finite difference for all atoms
 subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
@@ -179,15 +209,8 @@ subroutine hessian(self, env, mol0, chk0, list, step, hess, dipgrad, polgrad)
 !$ max_procs = max(1, omp_get_num_procs())
 !$ max_threads = max(1, omp_get_max_threads())
 !$ if (env_outer > 0) max_threads = min(max_threads, env_outer)
-!$ if (env_inner > 0) then
-!$    inner_threads = min(env_inner, max_procs)
-!$    outer_threads = min(ndispl, max_threads, max(1, max_procs / inner_threads))
-!$ else
-!$    outer_threads = min(ndispl, max_threads, max_procs)
-!$    inner_threads = max(1, max_procs / outer_threads)
-!$ end if
-!$ if (outer_threads < 1) outer_threads = 1
-!$ if (inner_threads < 1) inner_threads = 1
+   call plan_hessian_threads(ndispl, env_outer, env_inner, max_procs, max_threads, &
+      & outer_threads, inner_threads)
 !$ if (omp_get_max_active_levels() < 2) call omp_set_max_active_levels(2)
 
    ! emit one-line note if user request was capped

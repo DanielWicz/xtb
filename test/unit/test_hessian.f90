@@ -43,7 +43,8 @@ subroutine collect_hessian(testsuite)
 
    testsuite = [ &
       new_unittest("gfn1", test_gfn1_hessian), &
-      new_unittest("gfn2", test_gfn2_hessian) &
+      new_unittest("gfn2", test_gfn2_hessian), &
+      new_unittest("threads_plan", test_threads_plan) &
       ]
 
 end subroutine collect_hessian
@@ -240,5 +241,22 @@ subroutine test_gfn2_hessian(error)
    end do
 
 end subroutine test_gfn2_hessian
+
+subroutine test_threads_plan(error)
+   use xtb_type_calculator, only : plan_hessian_threads
+   type(error_type), allocatable, intent(out) :: error
+   integer :: outer, inner
+
+   call plan_hessian_threads(ndispl=6, env_outer=24, env_inner=16, max_procs=32, max_threads=32, &
+      & outer_threads=outer, inner_threads=inner)
+   call check(error, outer, 2)
+   call check(error, inner, 16)
+   if (allocated(error)) return
+
+   call plan_hessian_threads(ndispl=6, env_outer=24, env_inner=-1, max_procs=32, max_threads=32, &
+      & outer_threads=outer, inner_threads=inner)
+   call check(error, outer, 6)
+   call check(error, inner, 5)
+end subroutine test_threads_plan
 
 end module test_hessian
